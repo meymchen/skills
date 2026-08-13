@@ -20,5 +20,4 @@ __pycache__/
 
 # Local agent state
 /.agent-runs/
-/.codex-runs/
 /.scratch/
