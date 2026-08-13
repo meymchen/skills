@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "repository": "meymchen/lspf",
+  "baseBranch": "main",
+  "issues": [
+    {
+      "number": 79,
+      "skills": ["implement", "tdd"],
+      "instruction": ""
+    }
+  ]
+}
