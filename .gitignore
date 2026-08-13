@@ -15,8 +15,32 @@ Desktop.ini
 
 # Dependency and tool caches
 node_modules/
+.venv/
+venv/
+env/
+
+# Python bytecode and test/tool caches
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.pyre/
+.tox/
+.nox/
+
+# Python coverage, build, and packaging outputs
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
 
 # Local agent state
 /.agent-runs/
