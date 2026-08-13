@@ -23,33 +23,74 @@ def invoke_agent_phase(
     result_path = run_dir / f"{number}-{phase}-result.json"
     events_path = run_dir / f"{number}-{phase}-events.jsonl"
     schema = schema_path(phase)
-    skill_calls = [f"${skill}" for skill in queue_item["skills"]]
+    provider = state["agents"]["primary"]
+    marker = "$" if provider == "codex" else "/"
+    skill_calls = [f"{marker}{skill}" for skill in queue_item["skills"]]
+    additional_skill_calls = [
+        f"{marker}{skill}" for skill in queue_item["skills"] if skill != "implement"
+    ]
+    phase_skills = (
+        skill_calls
+        if phase == "implement"
+        else ([f"{marker}code-review"] if phase == "review" else [])
+    )
     payload = {
         "phase": phase,
-        "skills": skill_calls,
-        "instruction": queue_item["instruction"],
+        "skills": phase_skills,
+        "instruction": queue_item["instruction"] if phase == "implement" else "",
         "headSha": current["testedSha"],
         "issue": issue,
         "originalCheckboxes": current["checkboxes"],
         "localChecks": current["localChecks"],
         "ciChecks": current["ciChecks"],
     }
+    if phase == "implement":
+        invocation = f"{marker}implement {current['issueUrl']}"
+    elif phase == "review":
+        invocation = f"{marker}code-review {current['baseSha']}"
+    else:
+        invocation = f"Acceptance audit for {current['issueUrl']}"
+    if phase == "implement":
+        skill_instruction = (
+            "The first line is the single implement invocation. Within that workflow, invoke "
+            f"additional required skills in this order: {', '.join(additional_skill_calls)}. "
+            if additional_skill_calls
+            else "The first line is the single implement invocation. "
+        )
+        skill_instruction += (
+            "You may also invoke other installed skills relevant to implementation and must "
+            "report every skill actually used. "
+        )
+    elif phase == "review":
+        skill_instruction = "Invoke only code-review; do not rerun implementation skills. "
+    else:
+        skill_instruction = "Do not invoke implementation skills during the acceptance audit. "
     prompt = (
-        "This is a worker phase of a delivery workflow the user already invoked manually. "
-        "Do not invoke the manual-only deliver-github-issues skill. "
-        f"Invoke required implementation skills in this order: {', '.join(skill_calls)}. "
-        "You may also invoke any other installed and enabled skill relevant to the issue; "
-        "report every skill actually used. Ignore unavailable or disabled optional skills "
-        f"unless the issue explicitly requires one. Follow the {phase} contract: implement "
-        "may edit the workspace and run targeted tests; audit must keep it read-only and "
-        "classify every supplied checkbox. Return only the requested schema object.\nInput:\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        invocation
+        + "\n\n"
+        + (
+            "This is a worker phase of a delivery workflow the user already invoked manually. "
+            "Do not invoke the manual-only deliver-github-issues skill. "
+            + skill_instruction
+            + f"Follow the {phase} contract: implement "
+            "may edit the workspace, create provisional local commits, and run targeted tests; "
+            "review and audit must keep it read-only; review reports every finding and audit must "
+            "classify every supplied checkbox. Return only the requested schema object.\nInput:\n"
+            + json.dumps(payload, ensure_ascii=False, indent=2)
+        )
     )
+    if phase == "implement":
+        prompt = prompt.replace(
+            "\nInput:\n",
+            " Do not push, create or edit a pull request, or modify the issue. Do not create "
+            "or switch branches, and do not use destructive git commands. Confirm the issue "
+            "number and title before editing. Commit before the final code-review so the review "
+            "can inspect the full diff. Return control to the workflow after the structured "
+            "handoff.\nInput:\n",
+        )
     prompt_path.write_text(prompt, encoding="utf-8", newline="\n")
-    provider = policy["primaryAgent"]["provider"]
-    model = policy["primaryAgent"]["model"]
     if provider == "codex":
-        sandbox = "read-only" if phase == "audit" else "workspace-write"
+        sandbox = "read-only" if phase in {"audit", "review"} else "workspace-write"
         arguments = [
             "exec",
             "--ephemeral",
@@ -63,10 +104,16 @@ def invoke_agent_phase(
             "-C",
             str(root),
         ]
-        if model:
-            arguments.extend(["--model", model])
         arguments.append("-")
-        result = run_command("codex", arguments, cwd=root, input_text=prompt, allow_failure=True)
+        result = run_command(
+            "codex",
+            arguments,
+            cwd=root,
+            input_text=prompt,
+            allow_failure=True,
+            timeout_seconds=policy["primaryTimeoutMinutes"] * 60,
+            transient_retries=1,
+        )
         events_path.write_text(
             result.output + (("\n" + result.stderr) if result.stderr else ""),
             encoding="utf-8",
@@ -75,17 +122,38 @@ def invoke_agent_phase(
         if result.exit_code:
             raise CommandError(f"Codex {phase} failed with exit code {result.exit_code}.")
     else:
-        permission_mode = "plan" if phase == "audit" else "acceptEdits"
-        allowed_tools = "Read,Glob,Grep" if phase == "audit" else "Read,Edit,Write,Glob,Grep,Bash"
+        settings_path = run_dir / "claude-sandbox-settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "sandbox": {
+                        "enabled": True,
+                        "failIfUnavailable": True,
+                        "autoAllowBashIfSandboxed": True,
+                        "allowUnsandboxedCommands": False,
+                        "excludedCommands": [],
+                        "filesystem": {"denyWrite": [str(run_dir)]},
+                        "network": {"allowedDomains": [], "deniedDomains": ["*"]},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        permission_mode = "plan" if phase in {"audit", "review"} else "acceptEdits"
+        allowed_tools = (
+            "Read,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+            if phase in {"audit", "review"}
+            else "Read,Edit,Write,Glob,Grep,Bash"
+        )
         schema_text = schema.read_text(encoding="utf-8")
         arguments = [
             "--print",
             "--no-session-persistence",
+            "--settings",
+            str(settings_path),
             "--output-format",
             "json",
         ]
-        if model:
-            arguments.extend(["--model", model])
         arguments.extend(
             [
                 "--json-schema",
@@ -94,9 +162,19 @@ def invoke_agent_phase(
                 permission_mode,
                 "--allowedTools",
                 allowed_tools,
+                "--disallowedTools",
+                "Bash(gh:*),Bash(git push:*),Bash(git * push:*),Bash(git branch:*),Bash(git switch:*),Bash(git checkout:*),Bash(git reset:*),Bash(git clean:*),Bash(git worktree:*),Bash(git merge:*),Bash(git rebase:*),Bash(git tag:*),Bash(git remote:*)",
             ]
         )
-        result = run_command("claude", arguments, cwd=root, input_text=prompt, allow_failure=True)
+        result = run_command(
+            "claude",
+            arguments,
+            cwd=root,
+            input_text=prompt,
+            allow_failure=True,
+            timeout_seconds=policy["primaryTimeoutMinutes"] * 60,
+            transient_retries=1,
+        )
         events_path.write_text(
             result.output + (("\n" + result.stderr) if result.stderr else ""),
             encoding="utf-8",

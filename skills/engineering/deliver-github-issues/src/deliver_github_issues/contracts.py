@@ -64,10 +64,4 @@ def load_policy(path: Path) -> dict[str, Any]:
         if name in seen:
             raise ContractError(f"Duplicate local check name: {name}")
         seen.add(name)
-    metadata_agent = policy["metadataAgent"]
-    if metadata_agent["provider"] == "copilot" and metadata_agent["model"]:
-        raise ContractError(
-            "Copilot CLI does not expose non-interactive model selection; "
-            "configure its default model and leave metadataAgent.model empty."
-        )
     return policy

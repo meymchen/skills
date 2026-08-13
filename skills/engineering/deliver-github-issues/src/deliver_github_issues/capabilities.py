@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import tempfile
+from pathlib import Path
+
+from deliver_github_issues.commands import CommandError, command_json, run_command
+from deliver_github_issues.metadata import (
+    _has_tool_event,
+    _opencode_environment,
+    _run_kimi,
+    _run_opencode,
+    _text_candidates,
+)
+
+_REQUIRED_SKILLS = ("implement", "tdd", "code-review")
+_VERSION = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
+_MINIMUM_METADATA_VERSIONS = {"opencode": (1, 18, 18), "kimi": (0, 29, 0)}
+
+
+def _version(provider: str, log_path: Path) -> tuple[str, tuple[int, int, int]]:
+    result = run_command(provider, ["--version"], log_path=log_path)
+    text = (result.output + " " + result.stderr).strip()
+    match = _VERSION.search(text)
+    if not match:
+        raise CommandError(f"Could not parse {provider} version from: {text or '<empty>'}")
+    return text, tuple(int(part) for part in match.groups())
+
+
+def _validate_skill_source(primary: str) -> dict[str, str]:
+    agents_home = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents"))
+    lock_path = agents_home / ".skill-lock.json"
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise CommandError(f"Cannot read npx skills lock file: {lock_path}") from error
+    canonical: dict[str, Path] = {}
+    revisions: dict[str, str] = {}
+    for skill in _REQUIRED_SKILLS:
+        skill_file = agents_home / "skills" / skill / "SKILL.md"
+        if not skill_file.is_file():
+            raise CommandError(
+                f"Required mattpocock/skills skill is unavailable: {skill_file}. "
+                "Install it with npx skills."
+            )
+        if f"name: {skill}" not in skill_file.read_text(encoding="utf-8"):
+            raise CommandError(f"Skill metadata does not declare name: {skill}: {skill_file}")
+        locked = lock.get("skills", {}).get(skill, {})
+        if locked.get("source") != "mattpocock/skills" or not locked.get("skillFolderHash"):
+            raise CommandError(f"Skill {skill} is not locked to mattpocock/skills in {lock_path}.")
+        canonical[skill] = skill_file.resolve()
+        revisions[f"skill:{skill}"] = locked["skillFolderHash"]
+    if primary != "claude":
+        return revisions
+    claude_home = Path(os.environ.get("DGI_CLAUDE_HOME", Path.home() / ".claude"))
+    for skill, source in canonical.items():
+        linked = claude_home / "skills" / skill / "SKILL.md"
+        if not linked.is_file() or linked.resolve() != source:
+            raise CommandError(
+                f"Claude skill {skill} must link to the npx skills source {source}: {linked}"
+            )
+    return revisions
+
+
+def _validate_opencode_deny_all(log_path: Path) -> None:
+    environment = _opencode_environment()
+    with tempfile.TemporaryDirectory(prefix="deliver-opencode-probe-") as temporary_name:
+        temporary = Path(temporary_name)
+        config = command_json(
+            run_command(
+                "opencode",
+                ["debug", "config", "--pure"],
+                cwd=temporary,
+                env=environment,
+                log_path=log_path,
+            ),
+            "opencode effective config",
+        )
+        agent = command_json(
+            run_command(
+                "opencode",
+                ["debug", "agent", "metadata", "--pure"],
+                cwd=temporary,
+                env=environment,
+                log_path=log_path,
+            ),
+            "opencode metadata agent",
+        )
+    if (
+        config.get("tools", {}).get("*") is not False
+        or config.get("permission", {}).get("*") != "deny"
+    ):
+        raise CommandError("OpenCode effective global configuration is not deny-all.")
+    if (
+        agent.get("tools", {}).get("*") is not False
+        or agent.get("permission", {}).get("*") != "deny"
+    ):
+        raise CommandError("OpenCode effective metadata agent is not deny-all.")
+
+
+def _validate_kimi_agent_support(log_path: Path) -> None:
+    help_text = run_command("kimi", ["--help"], log_path=log_path).output
+    for option in ("--agent-file", "--skills-dir", "--output-format"):
+        if option not in help_text:
+            raise CommandError(f"Kimi Code CLI does not support required option {option}.")
+
+
+def _validate_metadata_auth(provider: str, log_path: Path) -> None:
+    if provider == "opencode":
+        result = run_command("opencode", ["auth", "list"], log_path=log_path)
+        if not result.output.strip():
+            raise CommandError("OpenCode has no configured authentication provider.")
+    else:
+        run_command("kimi", ["doctor"], log_path=log_path)
+
+
+def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
+    request = (
+        "CAPABILITY_PROBE: invoke this skill without doing ticket work. Summarize its required "
+        "test cadence, final review step, and commit destination. Make no changes."
+    )
+    with tempfile.TemporaryDirectory(prefix="deliver-primary-probe-") as temporary_name:
+        result_path = Path(temporary_name) / "result.txt"
+        if provider == "codex":
+            arguments = [
+                "exec",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--output-last-message",
+                str(result_path),
+                "-C",
+                str(root),
+                f"$implement {request}",
+            ]
+        else:
+            settings_path = Path(temporary_name) / "claude-sandbox-settings.json"
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "sandbox": {
+                            "enabled": True,
+                            "failIfUnavailable": True,
+                            "autoAllowBashIfSandboxed": True,
+                            "allowUnsandboxedCommands": False,
+                            "excludedCommands": [],
+                            "network": {"allowedDomains": [], "deniedDomains": ["*"]},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            arguments = [
+                "--print",
+                "--no-session-persistence",
+                "--settings",
+                str(settings_path),
+                "--permission-mode",
+                "plan",
+                "--allowedTools",
+                "Read",
+                f"/implement {request}",
+            ]
+        result = run_command(provider, arguments, cwd=root, log_path=log_path, timeout_seconds=120)
+        output = (
+            result_path.read_text(encoding="utf-8")
+            if provider == "codex" and result_path.is_file()
+            else result.output
+        ).lower()
+    expected = ("typecheck", "full test suite", "code-review", "current branch")
+    if not all(term in output for term in expected):
+        raise CommandError(f"{provider} did not demonstrate that it resolved the implement skill.")
+
+
+def _dynamic_metadata_probe(provider: str, log_path: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="deliver-metadata-probe-") as temporary_name:
+        temporary = Path(temporary_name)
+        prompt = "Return exactly METADATA_CAPABILITY_OK without using tools."
+        output = (
+            _run_opencode(prompt, temporary, 120, log_path)
+            if provider == "opencode"
+            else _run_kimi(prompt, temporary, 120, log_path)
+        )
+    texts: list[str] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise CommandError(f"{provider} capability probe returned invalid JSON.") from error
+        if not isinstance(event, dict) or _has_tool_event(event):
+            raise CommandError(f"{provider} capability probe exposed a tool event.")
+        texts.extend(_text_candidates(event))
+    if not any("METADATA_CAPABILITY_OK" in text for text in texts):
+        raise CommandError(f"{provider} capability probe produced no expected assistant text.")
+
+
+def validate_capabilities(
+    agents: dict[str, str], root: Path, log_path: Path, *, dynamic: bool = False
+) -> dict[str, str]:
+    for command in (agents["primary"], agents["metadata"]):
+        if shutil.which(command) is None:
+            raise CommandError(f"Required command is unavailable: {command}")
+    versions = _validate_skill_source(agents["primary"])
+    for provider in dict.fromkeys((agents["primary"], agents["metadata"])):
+        text, parsed = _version(provider, log_path)
+        minimum = _MINIMUM_METADATA_VERSIONS.get(provider)
+        if minimum and parsed < minimum:
+            required = ".".join(str(part) for part in minimum)
+            raise CommandError(f"{provider} {text} is too old; require >= {required}.")
+        versions[provider] = text
+    if agents["primary"] == "codex":
+        run_command("codex", ["login", "status"], log_path=log_path)
+    else:
+        run_command("claude", ["auth", "status"], log_path=log_path)
+    if agents["metadata"] == "opencode":
+        _validate_opencode_deny_all(log_path)
+    else:
+        _validate_kimi_agent_support(log_path)
+    _validate_metadata_auth(agents["metadata"], log_path)
+    if dynamic:
+        _dynamic_primary_probe(agents["primary"], root, log_path)
+        _dynamic_metadata_probe(agents["metadata"], log_path)
+    return versions

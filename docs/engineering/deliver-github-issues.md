@@ -12,13 +12,18 @@ failure.
 - Python 3.12 or newer;
 - uv 0.12.0 or newer;
 - Git and an authenticated GitHub CLI;
-- the configured Codex or Claude worker CLI;
+- Codex CLI or Claude Code as primary;
+- when Claude is selected, a working Claude Code Bash sandbox (macOS, Linux,
+  or WSL2); native Windows fails closed;
+- OpenCode 1.18.18+ or Kimi Code CLI 0.29.0+ for metadata;
+- `implement`, `tdd`, and `code-review` installed by `npx skills` under
+  `.agents/skills` and linked into `.claude/skills` when Claude is selected;
 - a clean target repository on its configured base branch;
 - squash merging enabled.
 
 Copy `assets/repository.example.json` from the skill to
 `.github/deliver-github-issues.json` in the target repository. Replace the
-placeholder commands and CI check names with real gates. Local commands are an
+placeholder commands, timeouts, retry limit, and CI check names with real gates. Local commands are an
 executable plus an argument array; shell strings, pipes, and redirects are not
 interpreted.
 
@@ -31,11 +36,14 @@ and optional `#` prefixes:
 uv run --project <skill-dir> --locked deliver-github-issues --issues "#19, #23-26"
 ```
 
-The orchestrator removes duplicates and reads GitHub `blockedBy` and `blocking`
+The orchestrator accepts only Open issues carrying the mapped `ready-for-agent`
+label. It removes duplicates and reads GitHub `blockedBy` and `blocking`
 relationships. Dependencies sort before dependents; unrelated issues retain
 input order. Cycles, truncated relationships, non-ready issues, and open
-blockers outside the selection fail preflight. Only the configured primary
-agent is required.
+blockers outside the selection fail preflight. To discover every eligible
+Issue explicitly, use `--all-ready`; ordinary runs never expand their scope.
+The selected Issue body is hashed at admission and must still match when its
+implementation starts.
 
 Use a queue file for extra skills or per-issue instructions:
 
@@ -43,8 +51,22 @@ Use a queue file for extra skills or per-issue instructions:
 uv run --project <skill-dir> --locked deliver-github-issues --queue queue.json
 ```
 
-Queue files preserve their explicit issue order. The orchestrator prepends
-`implement` to each issue's skill list.
+Queue files use their explicit issue order as the tie-breaker after the same
+dependency sort. The orchestrator prepends `implement` to each issue's skill
+list.
+
+## Select agents
+
+Agent selection belongs to a new run, not repository policy:
+
+```console
+uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --primary-agent claude --metadata-agent kimi
+```
+
+Primary defaults to `codex` and accepts `codex|claude`. Metadata defaults to
+`opencode` and accepts `opencode|kimi`. All CLIs use their own default model.
+The chosen providers and detected versions are embedded in run state; resume
+rejects new agent flags.
 
 ## Preview
 
@@ -57,11 +79,39 @@ uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --
 
 ## Lifecycle
 
-For each issue, the orchestrator fast-forwards the base, creates a branch,
-invokes the implementation worker, runs local gates, commits, creates or
+For each issue, the orchestrator fast-forwards the base, creates a branch, and
+invokes `$implement <full-issue-url>` in Codex or `/implement <full-issue-url>`
+in Claude. The primary may create local provisional commits and must use
+`code-review`. The orchestrator runs local gates, squashes all Issue work to one final commit, creates or
 updates a pull request, waits for required CI, audits acceptance checkboxes,
 and squash-merges the exact tested SHA. It then removes only that issue branch
 and fast-forwards the base before touching the next issue.
+
+The provisional commit receives a separate read-only `code-review` pass. Local
+gates run once before metadata generation and again after the final squash, so
+the recorded tested SHA is the commit that actually passed.
+The worker handoff's commit and changed-file claims are checked against Git.
+Protected refs, Issue timestamps, remote branches, and pull requests are
+snapshotted around primary calls to detect forbidden side effects.
+Claude receives a fail-closed OS sandbox with no outbound network and no
+unsandboxed-command escape hatch. Codex uses its workspace-write sandbox.
+
+Local, CI, or acceptance failures return to the same primary automatically.
+The shared retry budget defaults to three and is configured by
+`maxPrimaryFixAttempts`. Primary, metadata, and CI phases have separate policy
+timeouts.
+Recognized transient provider failures, such as rate limits or connection
+resets, are retried once; timeouts are not retried because the worker may have
+already changed the workspace.
+
+Metadata runs once on the normal path after local verification. OpenCode and
+Kimi run in isolated temporary working directories with no tools or subagents.
+Only verified summaries and successful command names are passed in; any tool
+event or invalid JSON stops the run without fallback.
+
+Preview performs static availability, version, authentication, skill-source,
+and no-tools configuration checks. A formal run additionally invokes
+read-only／no-tools capability probes before creating an issue branch.
 
 Only acceptance criteria backed by direct file, successful-command, or CI-URL
 evidence are checked automatically. An `unsatisfied` result returns the run to
@@ -78,8 +128,17 @@ logs, and strict version-1 state beneath
 uv run --project <skill-dir> --locked deliver-github-issues --resume 20260813T021340Z-dc418758 --instruction "Fix the gaps listed in the acceptance audit."
 ```
 
-Resume always uses the policy embedded in the run. It therefore rejects
-`--config` and `--what-if`. Successful runs remove their run directory.
+Resume always uses the policy and agents embedded in the run. It therefore
+rejects `--config`, `--what-if`, and agent flags. Successful runs remove their
+active run directory and retain a compact summary with a 30-day expiry under
+`.agent-runs/deliver-github-issues/summaries/`.
+
+Pass `--keep-run-summary` on a new run to keep that summary permanently. Remove
+expired summaries explicitly with:
+
+```console
+uv run --project <skill-dir> --locked deliver-github-issues --clean-summaries
+```
 
 ## Exit codes
 
