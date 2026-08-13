@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -57,7 +58,7 @@ def resolve_issue_selection(selector: str, ready_label: str) -> dict[str, Any]:
                     "--repo",
                     repository["nameWithOwner"],
                     "--json",
-                    "number,title,state,labels,blockedBy,blocking",
+                    "number,title,body,updatedAt,state,labels,blockedBy,blocking",
                 ],
             ),
             "gh issue view",
@@ -110,6 +111,37 @@ def resolve_issue_selection(selector: str, ready_label: str) -> dict[str, Any]:
         "repository": repository["nameWithOwner"],
         "baseBranch": repository["defaultBranchRef"]["name"],
         "issues": [
-            {"number": number, "skills": ["implement"], "instruction": ""} for number in result
+            {
+                "number": number,
+                "skills": ["implement"],
+                "instruction": "",
+                "bodyHash": hashlib.sha256(issues[number]["body"].encode("utf-8")).hexdigest(),
+            }
+            for number in result
         ],
     }
+
+
+def resolve_all_ready_issues(ready_label: str) -> dict[str, Any]:
+    issues = command_json(
+        run_command(
+            "gh",
+            [
+                "issue",
+                "list",
+                "--state",
+                "open",
+                "--label",
+                ready_label,
+                "--limit",
+                "1000",
+                "--json",
+                "number",
+            ],
+        ),
+        "gh issue list",
+    )
+    if not issues:
+        raise SelectionError(f"No open issues have the {ready_label} label.")
+    selector = ",".join(str(issue["number"]) for issue in issues)
+    return resolve_issue_selection(selector, ready_label)

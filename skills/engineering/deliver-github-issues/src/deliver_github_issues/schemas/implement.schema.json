@@ -1,10 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object", "additionalProperties": false,
-  "required": ["status", "summary", "usedSkills", "tests", "blockers"],
+  "required": ["status", "summary", "commitSha", "changedFiles", "reviewSummary", "usedSkills", "tests", "blockers"],
   "properties": {
     "status": { "enum": ["completed", "blocked"] },
     "summary": { "type": "string" },
+    "commitSha": { "type": ["string", "null"] },
+    "changedFiles": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "reviewSummary": { "type": "string" },
     "usedSkills": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
     "tests": {
       "type": "array", "items": {

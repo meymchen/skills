@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import shutil
+import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -16,11 +19,16 @@ from deliver_github_issues.audit import (
     extract_checkboxes,
     validate_audit,
 )
+from deliver_github_issues.capabilities import validate_capabilities
 from deliver_github_issues.commands import CommandError, command_json, run_command
 from deliver_github_issues.contracts import ContractError, load_policy, load_queue
 from deliver_github_issues.metadata import delivery_metadata
 from deliver_github_issues.preview import render_preview
-from deliver_github_issues.selection import SelectionError, resolve_issue_selection
+from deliver_github_issues.selection import (
+    SelectionError,
+    resolve_all_ready_issues,
+    resolve_issue_selection,
+)
 from deliver_github_issues.state import load_state, save_state
 
 PREFLIGHT = 10
@@ -53,24 +61,73 @@ def _config_path(root: Path, config: str) -> Path:
     return path if path.is_absolute() else root / path
 
 
-def preview_queue(queue_path: Path, config: str) -> str:
+def _preview_capabilities(root: Path, primary_agent: str, metadata_agent: str) -> None:
+    try:
+        with tempfile.TemporaryDirectory(prefix="deliver-preview-") as temporary_name:
+            validate_capabilities(
+                {"primary": primary_agent, "metadata": metadata_agent},
+                root,
+                Path(temporary_name) / "capabilities.log",
+            )
+    except CommandError as error:
+        raise WorkflowError(str(error), PREFLIGHT) from error
+
+
+def _sort_queue(queue: dict[str, Any], ready_label: str) -> dict[str, Any]:
+    instructions = {item["number"]: item for item in queue["issues"]}
+    selected = resolve_issue_selection(
+        ",".join(str(item["number"]) for item in queue["issues"]), ready_label
+    )
+    selected["issues"] = [
+        {**instructions[item["number"]], "bodyHash": item["bodyHash"]}
+        for item in selected["issues"]
+    ]
+    if selected["repository"] != queue["repository"]:
+        raise SelectionError(
+            f"Repository mismatch: queue has {queue['repository']}, GitHub has {selected['repository']}."
+        )
+    selected["baseBranch"] = queue["baseBranch"]
+    return selected
+
+
+def preview_queue(
+    queue_path: Path, config: str, primary_agent: str = "codex", metadata_agent: str = "opencode"
+) -> str:
     root = repository_root()
     try:
         queue = load_queue(queue_path)
         policy = load_policy(_config_path(root, config))
-    except ContractError as error:
+        queue = _sort_queue(queue, policy["readyLabel"])
+    except (ContractError, SelectionError, CommandError) as error:
         raise WorkflowError(str(error)) from error
-    return render_preview(queue, policy)
+    _preview_capabilities(root, primary_agent, metadata_agent)
+    return render_preview(queue, policy, primary_agent, metadata_agent)
 
 
-def preview_issues(selector: str, config: str) -> str:
+def preview_issues(
+    selector: str, config: str, primary_agent: str = "codex", metadata_agent: str = "opencode"
+) -> str:
     root = repository_root()
     try:
         policy = load_policy(_config_path(root, config))
         queue = resolve_issue_selection(selector, policy["readyLabel"])
     except (ContractError, SelectionError, CommandError) as error:
         raise WorkflowError(str(error)) from error
-    return render_preview(queue, policy)
+    _preview_capabilities(root, primary_agent, metadata_agent)
+    return render_preview(queue, policy, primary_agent, metadata_agent)
+
+
+def preview_all_ready(
+    config: str, primary_agent: str = "codex", metadata_agent: str = "opencode"
+) -> str:
+    root = repository_root()
+    try:
+        policy = load_policy(_config_path(root, config))
+        queue = resolve_all_ready_issues(policy["readyLabel"])
+    except (ContractError, SelectionError, CommandError) as error:
+        raise WorkflowError(str(error)) from error
+    _preview_capabilities(root, primary_agent, metadata_agent)
+    return render_preview(queue, policy, primary_agent, metadata_agent)
 
 
 def _utc_now() -> str:
@@ -117,12 +174,15 @@ def _read_live_issue(number: int, run_dir: Path) -> dict[str, Any]:
     )
 
 
-def _preflight(queue: dict[str, Any], policy: dict[str, Any], root: Path, run_dir: Path) -> None:
-    commands = [policy["primaryAgent"]["provider"], "git", "gh"]
+def _preflight(
+    queue: dict[str, Any],
+    policy: dict[str, Any],
+    agents: dict[str, str],
+    root: Path,
+    run_dir: Path,
+) -> dict[str, str]:
+    commands = [agents["primary"], agents["metadata"], "git", "gh"]
     commands.extend(check["command"] for check in policy["localChecks"])
-    metadata_agent = policy["metadataAgent"]
-    if metadata_agent["provider"] != "deterministic" and not metadata_agent["fallback"]:
-        commands.append(metadata_agent["provider"])
     for command in dict.fromkeys(commands):
         if shutil.which(command) is None:
             raise WorkflowError(f"Required command is unavailable: {command}", PREFLIGHT)
@@ -173,6 +233,7 @@ def _preflight(queue: dict[str, Any], policy: dict[str, Any], root: Path, run_di
             raise WorkflowError(f"Issue #{item['number']} is not open.", PREFLIGHT)
         if policy["readyLabel"] not in {label["name"] for label in issue["labels"]}:
             raise WorkflowError(f"Issue #{item['number']} lacks {policy['readyLabel']}.", PREFLIGHT)
+    return validate_capabilities(agents, root, log, dynamic=True)
 
 
 def _assert_branch_available(branch: str, log: Path) -> None:
@@ -202,6 +263,79 @@ def _assert_branch_available(branch: str, log: Path) -> None:
     )
     if pull_requests:
         raise WorkflowError(f"A PR already exists for {branch}.", PREFLIGHT)
+
+
+def _assert_issue_unclaimed(root: Path, run_id: str, issue_number: int) -> None:
+    runs = root / ".agent-runs" / "deliver-github-issues"
+    if not runs.is_dir():
+        return
+    for state_path in runs.glob("*/state.json"):
+        if state_path.parent.name == run_id:
+            continue
+        try:
+            other = load_state(state_path)
+        except ContractError:
+            continue
+        if any(item["number"] == issue_number for item in other["issues"][other["index"] :]):
+            raise WorkflowError(
+                f"Issue #{issue_number} is already claimed by run {other['runId']}.", PREFLIGHT
+            )
+
+
+def _assert_issue_ready(issue: dict[str, Any], ready_label: str, number: int) -> None:
+    if issue["state"] != "OPEN":
+        raise WorkflowError(f"Issue #{number} is not open.", DRIFT)
+    if ready_label not in {label["name"] for label in issue["labels"]}:
+        raise WorkflowError(f"Issue #{number} lacks {ready_label}.", DRIFT)
+
+
+def _assert_primary_side_effect_free(
+    current: dict[str, Any], root: Path, run_dir: Path, log: Path, refs_before: str
+) -> None:
+    branch = run_command("git", ["branch", "--show-current"], cwd=root, log_path=log).output
+    if branch.strip() != current["branch"]:
+        raise WorkflowError("Primary agent switched away from the delivery branch.", DRIFT)
+    if _read_live_issue(current["number"], run_dir)["updatedAt"] != current["issueUpdatedAt"]:
+        raise WorkflowError("Primary agent changed the Issue.", DRIFT)
+    refs_after = _protected_refs(current["branch"], root, log)
+    if refs_after != refs_before:
+        raise WorkflowError("Primary agent changed a protected Git ref.", DRIFT)
+    remote = run_command(
+        "git",
+        ["ls-remote", "--exit-code", "--heads", "origin", f"refs/heads/{current['branch']}"],
+        cwd=root,
+        log_path=log,
+        allow_failure=True,
+    )
+    if remote.exit_code == 0 and current["prNumber"] is None:
+        raise WorkflowError("Primary agent pushed the delivery branch.", DRIFT)
+    pull_requests = command_json(
+        run_command(
+            "gh",
+            ["pr", "list", "--state", "all", "--head", current["branch"], "--json", "number"],
+            cwd=root,
+            log_path=log,
+        ),
+        "gh pr list",
+    )
+    allowed = {current["prNumber"]} if current["prNumber"] is not None else set()
+    if {pull_request["number"] for pull_request in pull_requests} - allowed:
+        raise WorkflowError("Primary agent created a pull request.", DRIFT)
+
+
+def _protected_refs(branch: str, root: Path, log: Path) -> str:
+    refs = run_command(
+        "git",
+        [
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+        cwd=root,
+        log_path=log,
+    ).output.splitlines()
+    return "\n".join(sorted(line for line in refs if not line.startswith(f"refs/heads/{branch} ")))
 
 
 def _local_gates(
@@ -349,6 +483,39 @@ class DeliveryRun:
             lines.append(f"Local check [{status}]: {check['command']}: exit {check['exitCode']}")
         return "\n".join(lines)
 
+    def schedule_fix(self, reason: str, exit_code: int) -> None:
+        current = self.state["current"]
+        current["fixAttempts"] += 1
+        maximum = self.state["policy"]["maxPrimaryFixAttempts"]
+        if current["fixAttempts"] > maximum:
+            raise WorkflowError(
+                f"Primary fix limit reached after {maximum} attempt(s): {reason}", exit_code
+            )
+        self.state["issues"][self.state["index"]]["instruction"] = reason
+        self.state["phase"] = "needs_implementation"
+        self.save()
+
+    def write_success_summary(self) -> None:
+        expires = None
+        if not self.state["keepRunSummary"]:
+            expires = (datetime.now(UTC) + timedelta(days=30)).isoformat().replace("+00:00", "Z")
+        summary = {
+            "version": 1,
+            "runId": self.state["runId"],
+            "repository": self.state["repository"],
+            "agents": self.state["agents"],
+            "issues": self.state["completedIssues"],
+            "completedAt": _utc_now(),
+            "expiresAt": expires,
+        }
+        summaries = self.run_dir.parent / "summaries"
+        summaries.mkdir(parents=True, exist_ok=True)
+        (summaries / f"{self.state['runId']}.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
     def run(self) -> int:
         policy = self.state["policy"]
         while self.state["index"] < len(self.state["issues"]):
@@ -356,6 +523,7 @@ class DeliveryRun:
             number = item["number"]
             branch = f"{policy['branchPrefix']}{number}"
             if self.state["phase"] == "prepare":
+                _assert_issue_unclaimed(self.root, self.state["runId"], number)
                 run_command("git", ["fetch", "--prune", "origin"], log_path=self.log)
                 run_command("git", ["switch", self.state["baseBranch"]], log_path=self.log)
                 run_command(
@@ -365,16 +533,25 @@ class DeliveryRun:
                 )
                 _assert_branch_available(branch, self.log)
                 run_command("git", ["switch", "-c", branch], log_path=self.log)
+                base_sha = run_command(
+                    "git", ["rev-parse", "HEAD"], log_path=self.log
+                ).output.strip()
                 issue = _read_live_issue(number, self.run_dir)
+                _assert_issue_ready(issue, policy["readyLabel"], number)
+                if hashlib.sha256(issue["body"].encode("utf-8")).hexdigest() != item["bodyHash"]:
+                    raise WorkflowError(f"Issue #{number} body changed after selection.", DRIFT)
                 self.state["current"] = {
                     "number": number,
                     "title": issue["title"],
                     "branch": branch,
+                    "baseSha": base_sha,
+                    "fixAttempts": 0,
                     "issueUpdatedAt": issue["updatedAt"],
                     "issueUrl": issue["url"],
                     "checkboxes": extract_checkboxes(issue["body"]),
                     "testedSha": None,
                     "implementation": None,
+                    "review": None,
                     "localChecks": [],
                     "ciChecks": [],
                     "prNumber": None,
@@ -389,10 +566,19 @@ class DeliveryRun:
                 if self.state["phase"] == "needs_implementation":
                     self.state["current"]["issueUpdatedAt"] = issue["updatedAt"]
                     self.save()
+                refs_before = _protected_refs(branch, self.root, self.log)
                 result = invoke_agent_phase(
                     "implement", policy, self.state, item, issue, self.run_dir, self.root
                 )
-                missing = [skill for skill in item["skills"] if skill not in result["usedSkills"]]
+                _assert_primary_side_effect_free(
+                    self.state["current"], self.root, self.run_dir, self.log, refs_before
+                )
+                required_skills = [*item["skills"], "code-review"]
+                missing = [
+                    skill
+                    for skill in dict.fromkeys(required_skills)
+                    if skill not in result["usedSkills"]
+                ]
                 if result["status"] != "completed" or missing:
                     raise WorkflowError(
                         "Implementation blocked; missing skills: "
@@ -401,22 +587,85 @@ class DeliveryRun:
                         + "; ".join(result["blockers"]),
                         IMPLEMENTATION,
                     )
-                if not run_command("git", ["status", "--porcelain"], log_path=self.log).output:
+                dirty = run_command("git", ["status", "--porcelain"], log_path=self.log).output
+                head = run_command("git", ["rev-parse", "HEAD"], log_path=self.log).output.strip()
+                changed_files = set(
+                    run_command(
+                        "git",
+                        ["diff", "--name-only", self.state["current"]["baseSha"]],
+                        log_path=self.log,
+                    ).output.splitlines()
+                )
+                changed_files.update(
+                    run_command(
+                        "git",
+                        ["ls-files", "--others", "--exclude-standard"],
+                        log_path=self.log,
+                    ).output.splitlines()
+                )
+                if set(result["changedFiles"]) != changed_files:
+                    raise WorkflowError(
+                        "Primary handoff changedFiles differs from the Git diff.", IMPLEMENTATION
+                    )
+                if result["commitSha"] is not None and result["commitSha"] != head:
+                    raise WorkflowError(
+                        "Primary handoff commitSha differs from HEAD.", IMPLEMENTATION
+                    )
+                if not dirty and head == self.state["current"]["baseSha"]:
                     raise WorkflowError("Implementation produced no changes.", IMPLEMENTATION)
+                if dirty:
+                    run_command("git", ["add", "--all"], log_path=self.log)
+                    run_command(
+                        "git",
+                        ["commit", "-m", f"Provisional implementation for #{number}"],
+                        log_path=self.log,
+                    )
                 self.state["current"]["implementation"] = result
+                self.state["phase"] = "review"
+                self.save()
+            if self.state["phase"] == "review":
+                issue = _read_live_issue(number, self.run_dir)
+                refs_before = _protected_refs(branch, self.root, self.log)
+                review = invoke_agent_phase(
+                    "review", policy, self.state, item, issue, self.run_dir, self.root
+                )
+                _assert_primary_side_effect_free(
+                    self.state["current"], self.root, self.run_dir, self.log, refs_before
+                )
+                self.state["current"]["review"] = review
+                if review["status"] != "passed" or "code-review" not in review["usedSkills"]:
+                    self.schedule_fix(
+                        "Code review requires changes: " + "; ".join(review["findings"]),
+                        IMPLEMENTATION,
+                    )
+                    continue
                 self.state["phase"] = "local_gates"
                 self.save()
             if self.state["phase"] == "local_gates":
-                _local_gates(self.state, policy, self.run_dir, self.save)
+                try:
+                    _local_gates(self.state, policy, self.run_dir, self.save)
+                except WorkflowError as error:
+                    self.schedule_fix(str(error), IMPLEMENTATION)
+                    continue
                 self.state["current"]["metadata"] = delivery_metadata(
                     policy, self.state, self.run_dir
                 )
                 title = self.state["current"]["metadata"]["commitTitle"]
+                run_command(
+                    "git",
+                    ["reset", "--soft", self.state["current"]["baseSha"]],
+                    log_path=self.log,
+                )
                 run_command("git", ["add", "--all"], log_path=self.log)
                 run_command("git", ["commit", "-m", title], log_path=self.log)
                 self.state["current"]["testedSha"] = run_command(
                     "git", ["rev-parse", "HEAD"], log_path=self.log
                 ).output.strip()
+                try:
+                    _local_gates(self.state, policy, self.run_dir, self.save)
+                except WorkflowError as error:
+                    self.schedule_fix(f"Final commit verification failed: {error}", IMPLEMENTATION)
+                    continue
                 self.state["phase"] = "publish"
                 self.save()
             if self.state["phase"] == "publish":
@@ -460,7 +709,9 @@ class DeliveryRun:
                         "gh pr view",
                     )
                 else:
-                    run_command("git", ["push", "origin", branch], log_path=self.log)
+                    run_command(
+                        "git", ["push", "--force-with-lease", "origin", branch], log_path=self.log
+                    )
                     pull_request = command_json(
                         run_command(
                             "gh",
@@ -483,13 +734,19 @@ class DeliveryRun:
                 self.save()
             if self.state["phase"] == "ci":
                 current = self.state["current"]
-                current["ciChecks"] = _wait_for_checks(
-                    current["prNumber"],
-                    current["testedSha"],
-                    policy["requiredChecks"],
-                    self.run_dir,
-                    policy["ciTimeoutMinutes"],
-                )
+                try:
+                    current["ciChecks"] = _wait_for_checks(
+                        current["prNumber"],
+                        current["testedSha"],
+                        policy["requiredChecks"],
+                        self.run_dir,
+                        policy["ciTimeoutMinutes"],
+                    )
+                except WorkflowError as error:
+                    if str(error).startswith("CI failed:"):
+                        self.schedule_fix(str(error), CI)
+                        continue
+                    raise
                 self.state["phase"] = "audit"
                 self.save()
             if self.state["phase"] == "audit":
@@ -544,12 +801,16 @@ class DeliveryRun:
                 )
                 statuses = {criterion["status"] for criterion in audit["criteria"]}
                 if "unsatisfied" in statuses:
-                    self.state["phase"] = "needs_implementation"
-                    self.save()
-                    raise WorkflowError(
-                        "Acceptance found implementation gaps; resume with an instruction to fix them.",
+                    self.schedule_fix(
+                        "Acceptance found implementation gaps: "
+                        + "; ".join(
+                            criterion["text"]
+                            for criterion in audit["criteria"]
+                            if criterion["status"] == "unsatisfied"
+                        ),
                         ACCEPTANCE,
                     )
+                    continue
                 if "human_required" in statuses:
                     self.state["phase"] = "awaiting_human"
                     self.save()
@@ -672,6 +933,19 @@ class DeliveryRun:
                     == 0
                 ):
                     raise WorkflowError("Remote-tracking branch still exists after cleanup.", DRIFT)
+                self.state["completedIssues"].append(
+                    {
+                        "number": number,
+                        "testedSha": current["testedSha"],
+                        "prNumber": current["prNumber"],
+                        "prUrl": current["prUrl"],
+                        "localChecks": current["localChecks"],
+                        "ciChecks": current["ciChecks"],
+                        "audit": current["audit"],
+                        "fixAttempts": current["fixAttempts"],
+                        "completedAt": _utc_now(),
+                    }
+                )
                 self.state["index"] += 1
                 self.state["current"] = None
                 self.state["phase"] = (
@@ -682,11 +956,19 @@ class DeliveryRun:
         runs_root = (self.root / ".agent-runs" / "deliver-github-issues").resolve()
         if completed.parent != runs_root or completed.name != self.state["runId"]:
             raise WorkflowError("Refusing to remove an invalid run directory.", DRIFT)
+        self.write_success_summary()
         shutil.rmtree(completed)
         return len(self.state["issues"])
 
 
-def _start_delivery(root: Path, queue: dict[str, Any], policy: dict[str, Any]) -> DeliveryRun:
+def _start_delivery(
+    root: Path,
+    queue: dict[str, Any],
+    policy: dict[str, Any],
+    primary_agent: str,
+    metadata_agent: str,
+    keep_run_summary: bool,
+) -> DeliveryRun:
     run_id = _new_run_id()
     run_dir = root / ".agent-runs" / "deliver-github-issues" / run_id
     run_dir.mkdir(parents=True)
@@ -696,7 +978,10 @@ def _start_delivery(root: Path, queue: dict[str, Any], policy: dict[str, Any]) -
         "repository": queue["repository"],
         "baseBranch": queue["baseBranch"],
         "policy": policy,
+        "agents": {"primary": primary_agent, "metadata": metadata_agent, "versions": {}},
+        "keepRunSummary": keep_run_summary,
         "issues": queue["issues"],
+        "completedIssues": [],
         "index": 0,
         "phase": "preflight",
         "current": None,
@@ -705,7 +990,7 @@ def _start_delivery(root: Path, queue: dict[str, Any], policy: dict[str, Any]) -
     delivery = DeliveryRun(root, run_dir, state)
     delivery.save()
     try:
-        _preflight(queue, policy, root, run_dir)
+        state["agents"]["versions"] = _preflight(queue, policy, state["agents"], root, run_dir)
     except (WorkflowError, CommandError, OSError, KeyError, TypeError) as error:
         exit_code = error.exit_code if isinstance(error, WorkflowError) else PREFLIGHT
         raise WorkflowError(f"{error}\nRun state preserved at {run_dir}", exit_code) from error
@@ -714,24 +999,49 @@ def _start_delivery(root: Path, queue: dict[str, Any], policy: dict[str, Any]) -
     return delivery
 
 
-def _new_delivery(queue_path: Path, config: str) -> DeliveryRun:
+def _new_delivery(
+    queue_path: Path,
+    config: str,
+    primary_agent: str,
+    metadata_agent: str,
+    keep_run_summary: bool,
+) -> DeliveryRun:
     root = repository_root()
     try:
         queue = load_queue(queue_path)
         policy = load_policy(_config_path(root, config))
-    except ContractError as error:
+        queue = _sort_queue(queue, policy["readyLabel"])
+    except (ContractError, SelectionError, CommandError) as error:
         raise WorkflowError(str(error), PREFLIGHT) from error
-    return _start_delivery(root, queue, policy)
+    return _start_delivery(root, queue, policy, primary_agent, metadata_agent, keep_run_summary)
 
 
-def _new_issue_delivery(selector: str, config: str) -> DeliveryRun:
+def _new_issue_delivery(
+    selector: str,
+    config: str,
+    primary_agent: str,
+    metadata_agent: str,
+    keep_run_summary: bool,
+) -> DeliveryRun:
     root = repository_root()
     try:
         policy = load_policy(_config_path(root, config))
         queue = resolve_issue_selection(selector, policy["readyLabel"])
     except (ContractError, SelectionError, CommandError) as error:
         raise WorkflowError(str(error), PREFLIGHT) from error
-    return _start_delivery(root, queue, policy)
+    return _start_delivery(root, queue, policy, primary_agent, metadata_agent, keep_run_summary)
+
+
+def _new_all_ready_delivery(
+    config: str, primary_agent: str, metadata_agent: str, keep_run_summary: bool
+) -> DeliveryRun:
+    root = repository_root()
+    try:
+        policy = load_policy(_config_path(root, config))
+        queue = resolve_all_ready_issues(policy["readyLabel"])
+    except (ContractError, SelectionError, CommandError) as error:
+        raise WorkflowError(str(error), PREFLIGHT) from error
+    return _start_delivery(root, queue, policy, primary_agent, metadata_agent, keep_run_summary)
 
 
 def _execute_new(factory: Callable[[], DeliveryRun]) -> int:
@@ -762,12 +1072,60 @@ def _execute_new(factory: Callable[[], DeliveryRun]) -> int:
         raise WorkflowError(f"{error}{detail}{suffix}", code) from error
 
 
-def execute_delivery(queue_path: Path, config: str) -> int:
-    return _execute_new(lambda: _new_delivery(queue_path, config))
+def execute_delivery(
+    queue_path: Path,
+    config: str,
+    primary_agent: str = "codex",
+    metadata_agent: str = "opencode",
+    keep_run_summary: bool = False,
+) -> int:
+    return _execute_new(
+        lambda: _new_delivery(queue_path, config, primary_agent, metadata_agent, keep_run_summary)
+    )
 
 
-def execute_issues(selector: str, config: str) -> int:
-    return _execute_new(lambda: _new_issue_delivery(selector, config))
+def execute_issues(
+    selector: str,
+    config: str,
+    primary_agent: str = "codex",
+    metadata_agent: str = "opencode",
+    keep_run_summary: bool = False,
+) -> int:
+    return _execute_new(
+        lambda: _new_issue_delivery(
+            selector, config, primary_agent, metadata_agent, keep_run_summary
+        )
+    )
+
+
+def execute_all_ready(
+    config: str,
+    primary_agent: str = "codex",
+    metadata_agent: str = "opencode",
+    keep_run_summary: bool = False,
+) -> int:
+    return _execute_new(
+        lambda: _new_all_ready_delivery(config, primary_agent, metadata_agent, keep_run_summary)
+    )
+
+
+def clean_expired_summaries() -> int:
+    root = repository_root()
+    summaries = root / ".agent-runs" / "deliver-github-issues" / "summaries"
+    if not summaries.is_dir():
+        return 0
+    now = datetime.now(UTC)
+    removed = 0
+    for path in summaries.glob("*.json"):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            expires = value.get("expiresAt")
+            if expires and datetime.fromisoformat(expires.replace("Z", "+00:00")) <= now:
+                path.unlink()
+                removed += 1
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return removed
 
 
 def resume_delivery(run_id: str, instruction: str = "") -> int:

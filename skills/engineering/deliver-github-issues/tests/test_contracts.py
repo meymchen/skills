@@ -31,8 +31,9 @@ def valid_policy() -> dict[str, object]:
         "ciTimeoutMinutes": 60,
         "localChecks": [{"name": "test", "command": "uv", "arguments": ["run", "pytest"]}],
         "requiredChecks": ["test"],
-        "primaryAgent": {"provider": "codex", "model": ""},
-        "metadataAgent": {"provider": "deterministic", "model": "", "fallback": True},
+        "primaryTimeoutMinutes": 60,
+        "metadataTimeoutMinutes": 5,
+        "maxPrimaryFixAttempts": 3,
     }
 
 
@@ -69,11 +70,11 @@ def test_policy_rejects_duplicate_local_check_names(tmp_path: Path) -> None:
         load_policy(write_json(tmp_path / "policy.json", policy))
 
 
-def test_copilot_metadata_rejects_explicit_model(tmp_path: Path) -> None:
+def test_policy_rejects_legacy_agent_configuration(tmp_path: Path) -> None:
     policy = valid_policy()
-    policy["metadataAgent"] = {"provider": "copilot", "model": "gpt-5", "fallback": False}
+    policy["primaryAgent"] = {"provider": "codex", "model": ""}
 
-    with pytest.raises(ContractError, match="Copilot CLI does not expose"):
+    with pytest.raises(ContractError, match="Additional properties are not allowed"):
         load_policy(write_json(tmp_path / "policy.json", policy))
 
 
