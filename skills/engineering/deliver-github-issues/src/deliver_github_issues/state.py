@@ -24,6 +24,8 @@ def validate_state(state: dict[str, Any]) -> None:
     current = state["current"]
     if current and current.get("implementation") is not None:
         validate_contract(current["implementation"], "implement")
+    if current and current.get("review") is not None:
+        validate_contract(current["review"], "review")
     if current and current.get("audit") is not None:
         validate_contract(current["audit"], "audit")
     if current and current.get("metadata") is not None:
