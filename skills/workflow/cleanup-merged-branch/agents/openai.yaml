@@ -1,0 +1,7 @@
+interface:
+  display_name: "Cleanup Merged Branch"
+  short_description: "Safely clean merged branches and caches"
+  default_prompt: "Use $cleanup-merged-branch to clean this merged local branch and update the default branch."
+
+policy:
+  allow_implicit_invocation: false
