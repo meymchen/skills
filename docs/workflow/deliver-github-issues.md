@@ -5,7 +5,7 @@ exact-SHA squash merge. Its Python state machine processes one issue at a time,
 runs repository gates, audits acceptance checkboxes, and stops at the first
 failure.
 
-[Read the skill source](../../skills/engineering/deliver-github-issues/SKILL.md).
+[Read the skill source](../../skills/workflow/deliver-github-issues/SKILL.md).
 
 ## Requirements
 

@@ -5,7 +5,7 @@ a resumable Python state machine. It runs repository gates, audits acceptance
 criteria, and squash-merges the exact tested commit.
 
 - [Skill instructions](SKILL.md)
-- [Usage guide](../../../docs/engineering/deliver-github-issues.md)
+- [Usage guide](../../../docs/workflow/deliver-github-issues.md)
 
 ## Requirements
 
@@ -44,7 +44,7 @@ The defaults are `--primary-agent codex --metadata-agent opencode`. Select
 Claude Code or Kimi explicitly with `--primary-agent claude` and
 `--metadata-agent kimi`.
 
-The [usage guide](../../../docs/engineering/deliver-github-issues.md) covers
+The [usage guide](../../../docs/workflow/deliver-github-issues.md) covers
 queue files, previews, recovery, acceptance gates, and exit codes.
 
 ## Develop
