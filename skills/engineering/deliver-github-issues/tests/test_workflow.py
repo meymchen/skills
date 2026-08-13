@@ -239,7 +239,7 @@ def test_happy_path_is_ordered_and_removes_successful_state(tmp_path: Path) -> N
     ]
     positions = [calls.index(item) for item in expected]
     assert positions == sorted(positions)
-    assert calls.count("check ok") == 2
+    assert sum(line == "check ok" for line in calls.splitlines()) == 2
     assert "review.schema.json" in calls
     assert "--match-head-commit " + "a" * 40 in calls
     runs = tmp_path / ".agent-runs" / "deliver-github-issues"
