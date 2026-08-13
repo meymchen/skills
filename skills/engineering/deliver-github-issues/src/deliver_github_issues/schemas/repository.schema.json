@@ -9,11 +9,9 @@
     "branchPrefix": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
     "ciTimeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
     "localChecks": {
-      "type": "array",
-      "minItems": 1,
+      "type": "array", "minItems": 1,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
+        "type": "object", "additionalProperties": false,
         "required": ["name", "command", "arguments"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
@@ -22,29 +20,16 @@
         }
       }
     },
-    "requiredChecks": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "type": "string", "minLength": 1 },
-      "uniqueItems": true
-    },
+    "requiredChecks": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "primaryAgent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["provider", "model"],
-      "properties": {
-        "provider": { "enum": ["codex", "claude"] },
-        "model": { "type": "string" }
-      }
+      "type": "object", "additionalProperties": false, "required": ["provider", "model"],
+      "properties": { "provider": { "enum": ["codex", "claude"] }, "model": { "type": "string" } }
     },
     "metadataAgent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["provider", "model", "fallback"],
+      "type": "object", "additionalProperties": false, "required": ["provider", "model", "fallback"],
       "properties": {
         "provider": { "enum": ["deterministic", "codex", "opencode", "copilot", "kimi"] },
-        "model": { "type": "string" },
-        "fallback": { "type": "boolean" }
+        "model": { "type": "string" }, "fallback": { "type": "boolean" }
       }
     }
   }

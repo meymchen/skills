@@ -1,72 +1,47 @@
 ---
 name: deliver-github-issues
-description: Deliver or audit one GitHub issue supplied by the repository queue orchestrator.
+description: Deliver or audit GitHub issues through a resumable Python queue orchestrator.
 disable-model-invocation: true
 ---
 
 # Deliver GitHub Issues
 
-Invoke this user-only skill as `$deliver-github-issues` in Codex CLI or
-`/deliver-github-issues` in Claude Code. Run the bundled
-`scripts/Invoke-IssueQueue.ps1` from the target repository while resolving the
-script path relative to this skill. Client metadata disables automatic model
-invocation in both hosts.
+Invoke this manual-only skill as `$deliver-github-issues` in Codex CLI or
+`/deliver-github-issues` in Claude Code. From the target repository, run its
+Python orchestrator with the skill directory as the uv project:
 
-Obey the `phase` field in the prompt. PowerShell owns every Git and GitHub
-write; return structured evidence only.
+```console
+uv run --project <skill-dir> --locked deliver-github-issues --issues "#14, #15-18"
+```
 
-Start a queue from `-Issues '#14, #15-18'` or a queue JSON file. Quote selectors
-in PowerShell because `#` begins a comment. Issue selectors
-use GitHub `blockedBy` and `blocking` relationships for a stable topological
-order and require every selected issue to be open with `ready-for-agent`.
-PowerShell prepends `$implement` to each issue's skill list by default.
-Run state lives in `.agent-runs/deliver-github-issues/<run-id>/`; successful
-queues remove their run directory, while stopped queues retain it for `-Resume`.
+The orchestrator owns every Git and GitHub write. Workers obey the `phase` in
+their prompt and return structured evidence only. Issue selectors use GitHub
+dependency relationships for a stable topological order. Queue files retain
+their explicit order. The orchestrator prepends `$implement` once to every
+issue's skill list.
 
-Copy `assets/repository.example.json` to
-`.github/deliver-github-issues.json` and replace its checks with the target
-repository's real local and CI gates. Use `-Config` for another path. This
-policy also owns the readiness label, branch prefix, timeout, and low-cost
-metadata agent.
+Repository policy lives at `.github/deliver-github-issues.json`. Copy
+`assets/repository.example.json` there and replace its local and CI checks.
+The policy selects Codex or Claude for implementation and audit, plus an
+optional metadata provider.
 
-Set `primaryAgent.provider` to `codex` or `claude` for implementation and audit
-workers. Both receive the same JSON Schemas and never recursively invoke this
-manual-only skill.
+Run state lives at `.agent-runs/deliver-github-issues/<run-id>/`. Successful
+runs remove their directory. Failed, interrupted, and human-gated runs preserve
+state for `--resume`.
 
-## Implement
+## Worker contracts
 
-1. Read `AGENTS.md`, `CONTEXT.md`, relevant ADRs, and the complete issue input.
-2. Invoke every additional `$skill-name` listed in the prompt. Freely invoke
-   any other installed and enabled skill relevant to the issue. If an explicit
-   skill cannot load, return `blocked` and name it in `blockers`.
-3. Implement the issue in the current branch and run targeted tests. Keep Git,
-   GitHub, `.agent-runs/`, and `.scratch/` unchanged.
-4. Return only an object matching `scripts/implement.schema.json`. Include each
-   command actually run and its exit code. Report this skill plus every
-   additional skill actually used in `usedSkills`.
+During `implement`, read repository instructions and the complete issue input,
+invoke every requested skill in order, edit the current branch, and run
+targeted tests. Do not commit, push, modify `.agent-runs/`, or write GitHub.
+Return only the object required by `implement.schema.json`, including every
+skill used and every observed test exit code.
 
-Completion means the requested implementation is present and every reported
-targeted test has an observed exit code.
+During `audit`, keep the workspace read-only. Classify every original checkbox
+in order. Use `satisfied` only with reproducible file, successful-command, or
+CI-URL evidence; use `human_required` for judgment; use `unsatisfied` for an
+implementation gap. Return only the object required by `audit.schema.json`.
 
-## Audit
-
-1. Treat the supplied head SHA, issue snapshot, local-gate log, and CI checks as
-   the entire evidence boundary. Keep the workspace read-only.
-2. Return one criterion for every original issue checkbox, in original order,
-   matching its exact text.
-3. Use `satisfied` only with reproducible file, successful-command, or CI-URL
-   evidence. Use `human_required` for judgment or approval. Use `unsatisfied`
-   for a concrete implementation gap.
-4. Return only an object matching `scripts/audit.schema.json`. Model assertions
-   are conclusions, never evidence.
-
-Completion means every original checkbox has exactly one classified result.
-
-## Metadata agents
-
-Set `metadataAgent.provider` to `deterministic`, `codex`, `opencode`, `copilot`,
-or `kimi`, plus an optional low-cost model name. PowerShell runs non-Codex
-agents in an isolated temporary directory and accepts only validated commit／PR
-metadata. It performs every Git and GitHub write and uses deterministic
-metadata when an enabled fallback is needed. Model selection applies to Codex,
-OpenCode, and Kimi; Copilot uses its configured CLI model.
+Metadata providers are `deterministic`, `codex`, `opencode`, `copilot`, and
+`kimi`. Non-deterministic providers must return one complete JSON object.
+Copilot uses its CLI-configured model, so its policy model must be empty.

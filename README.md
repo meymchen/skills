@@ -8,7 +8,7 @@ domain under `skills/`, following the layout used by
 
 - [`deliver-github-issues`](docs/engineering/deliver-github-issues.md)
   ([source](skills/engineering/deliver-github-issues/SKILL.md)) — deliver ready GitHub
-  issues in dependency order with a resumable PowerShell state machine.
+  issues in dependency order with a resumable uv-managed Python state machine.
 
 ## Install
 

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "runId", "repository", "baseBranch", "policy", "issues", "index", "phase", "current", "updatedAt"],
+  "properties": {
+    "version": { "const": 1 },
+    "runId": { "type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$" },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "baseBranch": { "type": "string", "minLength": 1 },
+    "policy": { "type": "object" },
+    "issues": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "index": { "type": "integer", "minimum": 0 },
+    "phase": {
+      "enum": ["preflight", "prepare", "implement", "needs_implementation", "local_gates", "publish", "ci", "audit", "awaiting_human", "merge", "complete"]
+    },
+    "current": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["number", "title", "branch", "issueUpdatedAt", "issueUrl", "checkboxes", "testedSha", "implementation", "localChecks", "ciChecks", "prNumber", "prUrl", "audit", "metadata"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "branch": { "type": "string" },
+        "issueUpdatedAt": { "type": "string" },
+        "issueUrl": { "type": "string" },
+        "checkboxes": { "type": "array", "items": { "$ref": "#/$defs/checkbox" } },
+        "testedSha": { "type": ["string", "null"] },
+        "implementation": { "type": ["object", "null"] },
+        "localChecks": { "type": "array", "items": { "$ref": "#/$defs/localCheck" } },
+        "ciChecks": { "type": "array", "items": { "$ref": "#/$defs/ciCheck" } },
+        "prNumber": { "type": ["integer", "null"] },
+        "prUrl": { "type": ["string", "null"] },
+        "audit": { "type": ["object", "null"] },
+        "metadata": { "type": ["object", "null"] }
+      }
+    },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "skills", "instruction"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "uniqueItems": true
+        },
+        "instruction": { "type": "string" }
+      }
+    },
+    "checkbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "text", "checked"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string" },
+        "checked": { "type": "boolean" }
+      }
+    },
+    "localCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "command", "exitCode", "log"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": "integer" },
+        "log": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ciCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "state", "link", "bucket"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "minLength": 1 },
+        "link": { "type": "string", "minLength": 1 },
+        "bucket": { "enum": ["pass", "fail", "pending", "cancel", "skipping"] }
+      }
+    }
+  }
+}
