@@ -6,8 +6,8 @@ domain under `skills/`, following the layout used by
 
 ## Skills
 
-- [`deliver-github-issues`](docs/misc/deliver-github-issues.md)
-  ([source](skills/misc/deliver-github-issues/SKILL.md)) — deliver ready GitHub
+- [`deliver-github-issues`](docs/engineering/deliver-github-issues.md)
+  ([source](skills/engineering/deliver-github-issues/SKILL.md)) — deliver ready GitHub
   issues in dependency order with a resumable PowerShell state machine.
 
 ## Install
@@ -18,10 +18,10 @@ skill locations:
 ```powershell
 New-Item -ItemType Junction `
   -Path "$HOME\.agents\skills\deliver-github-issues" `
-  -Target (Resolve-Path ".\skills\misc\deliver-github-issues").Path
+  -Target (Resolve-Path ".\skills\engineering\deliver-github-issues").Path
 New-Item -ItemType Junction `
   -Path "$HOME\.claude\skills\deliver-github-issues" `
-  -Target (Resolve-Path ".\skills\misc\deliver-github-issues").Path
+  -Target (Resolve-Path ".\skills\engineering\deliver-github-issues").Path
 ```
 
 After publishing the repository, compatible agents can also install from

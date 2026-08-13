@@ -12,7 +12,7 @@ Code handles the implementation and evidence audit for the current issue. The
 agent cannot commit, push, open a pull request, edit an issue, or merge on its
 own.
 
-[Read the skill source](../../skills/misc/deliver-github-issues/SKILL.md).
+[Read the skill source](../../skills/engineering/deliver-github-issues/SKILL.md).
 
 ## When to reach for it
 
