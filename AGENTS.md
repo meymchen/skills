@@ -11,3 +11,8 @@ The five canonical triage roles use their default label names. See `docs/agents/
 ### Domain docs
 
 Domain documentation uses the single-context layout. See `docs/agents/domain.md`.
+
+### Python scripts
+
+Run and maintain Python scripts with `uv` using the cross-platform conventions in
+`docs/agents/python-scripts.md`.
