@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commitTitle", "prTitle", "summary"],
+  "properties": {
+    "commitTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "prTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 }
+  }
+}
