@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DavidAnson/markdownlint-cli2/v0.23.2/schema/markdownlint-cli2-config-schema.json",
+
+  // Shared policy for README files, user documentation, skill sources, and
+  // agent instruction files. Keep the default CommonMark-oriented rules
+  // enabled, then tune only conventions that vary between projects.
+  "config": {
+    "default": true,
+
+    // Use predictable source formatting across every document type.
+    "MD003": {
+      "style": "atx"
+    },
+    "MD004": {
+      "style": "dash"
+    },
+    "MD007": {
+      "indent": 2
+    },
+
+    // Technical docs contain commands, URLs, tables, and agent prompts that
+    // should not be split solely to satisfy a source-width limit. Prose should
+    // still be wrapped when doing so does not damage copy/paste examples.
+    "MD013": false,
+    "MD024": {
+      "siblings_only": true
+    },
+    "MD033": {
+      "allowed_elements": [
+        "br",
+        "details",
+        "kbd",
+        "sub",
+        "summary",
+        "sup"
+      ]
+    },
+    "MD046": {
+      "style": "fenced"
+    },
+    "MD048": {
+      "style": "backtick"
+    },
+    "MD049": {
+      "style": "underscore"
+    },
+    "MD050": {
+      "style": "asterisk"
+    }
+  },
+
+  // Agent instruction and skill definition files are composable fragments;
+  // they do not need a document-level H1 before their operational content.
+  "overrides": [
+    {
+      "filter": [
+        "AGENTS.md",
+        "SKILL.md",
+        "**/AGENTS.md",
+        "**/SKILL.md"
+      ],
+      "combine": "merge",
+      "config": {
+        "MD041": false
+      }
+    }
+  ]
+}
