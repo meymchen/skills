@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
-from fakes import install_python_tool
+from fakes import install_python_tool, isolated_agent_environment
 
 from deliver_github_issues.cli import build_parser
 
@@ -163,8 +162,7 @@ if args[:2] == ['issue', 'view']:
 raise SystemExit(2)
 """,
     )
-    environment = os.environ.copy()
-    environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
+    environment = isolated_agent_environment(fake_bin)
 
     result = run_cli("--queue", str(queue), "--what-if", cwd=tmp_path, env=environment)
 
@@ -217,8 +215,7 @@ if args[:2] == ['issue', 'view']:
 raise SystemExit(2)
 """,
     )
-    environment = os.environ.copy()
-    environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
+    environment = isolated_agent_environment(fake_bin)
 
     result = subprocess.run(
         [

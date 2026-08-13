@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
-from fakes import install_python_tool
+from fakes import install_python_tool, isolated_agent_environment
 
 
 def install_fakes(bin_dir: Path) -> None:
@@ -213,9 +212,8 @@ def test_happy_path_is_ordered_and_removes_successful_state(tmp_path: Path) -> N
     )
     fake_bin = tmp_path / "bin"
     install_fakes(fake_bin)
-    environment = os.environ.copy()
+    environment = isolated_agent_environment(fake_bin)
     environment["DGI_FAKE_STATE"] = str(tmp_path / "fake-state")
-    environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
 
     result = subprocess.run(
         [sys.executable, "-m", "deliver_github_issues.cli", "--queue", str(queue_path)],
@@ -283,10 +281,9 @@ def test_human_gate_preserves_state_and_requires_exact_acceptance(tmp_path: Path
     )
     fake_bin = tmp_path / "bin"
     install_fakes(fake_bin)
-    environment = os.environ.copy()
+    environment = isolated_agent_environment(fake_bin)
     environment["DGI_FAKE_STATE"] = str(tmp_path / "fake-state")
     environment["DGI_FAKE_HUMAN"] = "1"
-    environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
 
     stopped = subprocess.run(
         [sys.executable, "-m", "deliver_github_issues.cli", "--queue", str(queue_path)],
@@ -336,9 +333,8 @@ def test_issue_mode_uses_configured_claude_without_codex(tmp_path: Path) -> None
     fake_bin = tmp_path / "bin"
     install_fakes(fake_bin)
     (fake_bin / "codex.cmd").unlink(missing_ok=True)
-    environment = os.environ.copy()
+    environment = isolated_agent_environment(fake_bin)
     environment["DGI_FAKE_STATE"] = str(tmp_path / "fake-state")
-    environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
 
     result = subprocess.run(
         [
@@ -407,10 +403,9 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
         )
         fake_bin = repository / "bin"
         install_fakes(fake_bin)
-        environment = os.environ.copy()
+        environment = isolated_agent_environment(fake_bin)
         environment["DGI_FAKE_STATE"] = str(repository / "fake-state")
         environment[flag] = "1"
-        environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
 
         result = subprocess.run(
             [sys.executable, "-m", "deliver_github_issues.cli", "--queue", str(queue_path)],
@@ -474,13 +469,12 @@ def test_final_sha_gate_failure_returns_to_primary_fix_loop(tmp_path: Path) -> N
     )
     fake_bin = tmp_path / "bin"
     install_fakes(fake_bin)
-    environment = os.environ.copy()
+    environment = isolated_agent_environment(fake_bin)
     environment.update(
         {
             "DGI_FAKE_STATE": str(tmp_path / "fake-state"),
             "DGI_FAKE_FINAL_LOCAL_FAIL": "1",
             "DGI_FAKE_UNTRACKED": "1",
-            "PATH": str(fake_bin) + os.pathsep + environment["PATH"],
         }
     )
 
