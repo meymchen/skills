@@ -1,0 +1,36 @@
+[project]
+name = "deliver-github-issues"
+version = "1.0.0"
+description = "Deliver ready GitHub issues through a resumable agent workflow"
+requires-python = ">=3.12"
+dependencies = [
+  "jsonschema>=4.25,<5",
+]
+
+[project.scripts]
+deliver-github-issues = "deliver_github_issues.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<10",
+  "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deliver_github_issues"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

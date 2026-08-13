@@ -1,0 +1,36 @@
+# Normalize text in the index and use LF in cross-platform working trees.
+* text=auto eol=lf
+
+# Windows command scripts require CRLF for reliable cmd.exe behavior.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Keep source-like formats explicitly normalized as text.
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.svg text eol=lf
+
+# Prevent content detection and line-ending conversion for binary assets.
+*.7z binary
+*.docx binary
+*.exe binary
+*.gif binary
+*.gz binary
+*.ico binary
+*.jar binary
+*.jpeg binary
+*.jpg binary
+*.pdf binary
+*.png binary
+*.pptx binary
+*.tar binary
+*.tgz binary
+*.webp binary
+*.xlsx binary
+*.zip binary
