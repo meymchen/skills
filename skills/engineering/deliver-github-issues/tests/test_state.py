@@ -56,3 +56,27 @@ def test_state_rejects_partial_current_issue(tmp_path: Path) -> None:
 
     with pytest.raises(ContractError, match="is a required property"):
         save_state(state, tmp_path / "state.json")
+
+
+def test_state_rejects_incomplete_nested_checkbox(tmp_path: Path) -> None:
+    state = state_value()
+    state["phase"] = "implement"
+    state["current"] = {
+        "number": 79,
+        "title": "Do thing",
+        "branch": "agent/issue-79",
+        "issueUpdatedAt": "2026-08-13T00:00:00Z",
+        "issueUrl": "https://github.test/issues/79",
+        "checkboxes": [{"text": "works"}],
+        "testedSha": None,
+        "implementation": None,
+        "localChecks": [],
+        "ciChecks": [],
+        "prNumber": None,
+        "prUrl": None,
+        "audit": None,
+        "metadata": None,
+    }
+
+    with pytest.raises(ContractError, match="is a required property"):
+        save_state(state, tmp_path / "state.json")

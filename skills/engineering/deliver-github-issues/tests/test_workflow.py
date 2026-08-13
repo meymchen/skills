@@ -359,3 +359,16 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
             assert "Issue #79; phase=" in result.stderr
             assert "head=" in result.stderr
             assert "PR=" in result.stderr
+        if flag == "DGI_FAKE_LOCAL_FAIL":
+            run_dir = next(runs.iterdir())
+            state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+            assert state["current"]["localChecks"] == [
+                {
+                    "name": "test",
+                    "command": "check ok",
+                    "exitCode": 9,
+                    "log": str(run_dir / "79-local-test.log"),
+                }
+            ]
+            assert "Local check [failed]: check ok: exit 9" in result.stderr
+            assert "exit=9" in (run_dir / "79-local-test.log").read_text(encoding="utf-8")

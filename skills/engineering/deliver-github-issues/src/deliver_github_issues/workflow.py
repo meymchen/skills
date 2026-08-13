@@ -4,6 +4,7 @@ import re
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -204,27 +205,33 @@ def _assert_branch_available(branch: str, log: Path) -> None:
 
 
 def _local_gates(
-    state: dict[str, Any], policy: dict[str, Any], run_dir: Path
-) -> list[dict[str, Any]]:
-    results = []
+    state: dict[str, Any],
+    policy: dict[str, Any],
+    run_dir: Path,
+    save: Callable[[], None],
+) -> None:
+    state["current"]["localChecks"] = []
     for check in policy["localChecks"]:
+        log_path = run_dir / f"{state['current']['number']}-local-{check['name']}.log"
         result = run_command(
             check["command"],
             check["arguments"],
-            log_path=run_dir / f"{state['current']['number']}-local-{check['name']}.log",
+            log_path=log_path,
             allow_failure=True,
         )
-        results.append(
+        with log_path.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(f"exit={result.exit_code}\n")
+        state["current"]["localChecks"].append(
             {
                 "name": check["name"],
                 "command": result.command_line,
                 "exitCode": result.exit_code,
-                "log": str(run_dir / f"{state['current']['number']}-local-{check['name']}.log"),
+                "log": str(log_path),
             }
         )
+        save()
         if result.exit_code:
             raise WorkflowError(f"Local check failed: {check['name']}", IMPLEMENTATION)
-    return results
 
 
 def _wait_for_checks(
@@ -337,6 +344,9 @@ class DeliveryRun:
             for criterion in current["checkboxes"]:
                 if not criterion["checked"]:
                     lines.append(f"Unchecked [not audited]: {criterion['text']}")
+        for check in current["localChecks"]:
+            status = "passed" if check["exitCode"] == 0 else "failed"
+            lines.append(f"Local check [{status}]: {check['command']}: exit {check['exitCode']}")
         return "\n".join(lines)
 
     def run(self) -> int:
@@ -397,9 +407,7 @@ class DeliveryRun:
                 self.state["phase"] = "local_gates"
                 self.save()
             if self.state["phase"] == "local_gates":
-                self.state["current"]["localChecks"] = _local_gates(
-                    self.state, policy, self.run_dir
-                )
+                _local_gates(self.state, policy, self.run_dir, self.save)
                 self.state["current"]["metadata"] = delivery_metadata(
                     policy, self.state, self.run_dir
                 )
@@ -678,13 +686,7 @@ class DeliveryRun:
         return len(self.state["issues"])
 
 
-def _new_delivery(queue_path: Path, config: str) -> DeliveryRun:
-    root = repository_root()
-    try:
-        queue = load_queue(queue_path)
-        policy = load_policy(_config_path(root, config))
-    except ContractError as error:
-        raise WorkflowError(str(error), PREFLIGHT) from error
+def _start_delivery(root: Path, queue: dict[str, Any], policy: dict[str, Any]) -> DeliveryRun:
     run_id = _new_run_id()
     run_dir = root / ".agent-runs" / "deliver-github-issues" / run_id
     run_dir.mkdir(parents=True)
@@ -710,6 +712,16 @@ def _new_delivery(queue_path: Path, config: str) -> DeliveryRun:
     state["phase"] = "prepare"
     delivery.save()
     return delivery
+
+
+def _new_delivery(queue_path: Path, config: str) -> DeliveryRun:
+    root = repository_root()
+    try:
+        queue = load_queue(queue_path)
+        policy = load_policy(_config_path(root, config))
+    except ContractError as error:
+        raise WorkflowError(str(error), PREFLIGHT) from error
+    return _start_delivery(root, queue, policy)
 
 
 def _new_issue_delivery(selector: str, config: str) -> DeliveryRun:
@@ -719,87 +731,43 @@ def _new_issue_delivery(selector: str, config: str) -> DeliveryRun:
         queue = resolve_issue_selection(selector, policy["readyLabel"])
     except (ContractError, SelectionError, CommandError) as error:
         raise WorkflowError(str(error), PREFLIGHT) from error
-    run_id = _new_run_id()
-    run_dir = root / ".agent-runs" / "deliver-github-issues" / run_id
-    run_dir.mkdir(parents=True)
-    state = {
-        "version": 1,
-        "runId": run_id,
-        "repository": queue["repository"],
-        "baseBranch": queue["baseBranch"],
-        "policy": policy,
-        "issues": queue["issues"],
-        "index": 0,
-        "phase": "preflight",
-        "current": None,
-        "updatedAt": _utc_now(),
-    }
-    delivery = DeliveryRun(root, run_dir, state)
-    delivery.save()
+    return _start_delivery(root, queue, policy)
+
+
+def _execute_new(factory: Callable[[], DeliveryRun]) -> int:
+    delivery: DeliveryRun | None = None
     try:
-        _preflight(queue, policy, root, run_dir)
-    except (WorkflowError, CommandError, OSError, KeyError, TypeError) as error:
-        exit_code = error.exit_code if isinstance(error, WorkflowError) else PREFLIGHT
-        raise WorkflowError(f"{error}\nRun state preserved at {run_dir}", exit_code) from error
-    state["phase"] = "prepare"
-    delivery.save()
-    return delivery
+        delivery = factory()
+        return delivery.run()
+    except KeyboardInterrupt as error:
+        if delivery:
+            delivery.save()
+            raise WorkflowError(
+                f"Interrupted. Run state preserved at {delivery.run_dir}", INTERRUPTED
+            ) from error
+        raise WorkflowError("Interrupted.", INTERRUPTED) from error
+    except WorkflowError as error:
+        if delivery and delivery.run_dir.exists() and "Run state preserved at" not in str(error):
+            summary = delivery.failure_summary()
+            detail = f"\n{summary}" if summary else ""
+            raise WorkflowError(
+                f"{error}{detail}\nRun state preserved at {delivery.run_dir}", error.exit_code
+            ) from error
+        raise
+    except (CommandError, ContractError, AuditError, OSError, KeyError, TypeError) as error:
+        code = _phase_exit_code(delivery.state["phase"]) if delivery else PREFLIGHT
+        summary = delivery.failure_summary() if delivery else ""
+        detail = f"\n{summary}" if summary else ""
+        suffix = f"\nRun state preserved at {delivery.run_dir}" if delivery else ""
+        raise WorkflowError(f"{error}{detail}{suffix}", code) from error
 
 
 def execute_delivery(queue_path: Path, config: str) -> int:
-    delivery: DeliveryRun | None = None
-    try:
-        delivery = _new_delivery(queue_path, config)
-        return delivery.run()
-    except KeyboardInterrupt as error:
-        if delivery:
-            delivery.save()
-            raise WorkflowError(
-                f"Interrupted. Run state preserved at {delivery.run_dir}", INTERRUPTED
-            ) from error
-        raise WorkflowError("Interrupted.", INTERRUPTED) from error
-    except WorkflowError as error:
-        if delivery and delivery.run_dir.exists() and "Run state preserved at" not in str(error):
-            summary = delivery.failure_summary()
-            detail = f"\n{summary}" if summary else ""
-            raise WorkflowError(
-                f"{error}{detail}\nRun state preserved at {delivery.run_dir}", error.exit_code
-            ) from error
-        raise
-    except (CommandError, ContractError, AuditError, OSError, KeyError, TypeError) as error:
-        code = _phase_exit_code(delivery.state["phase"]) if delivery else PREFLIGHT
-        summary = delivery.failure_summary() if delivery else ""
-        detail = f"\n{summary}" if summary else ""
-        suffix = f"\nRun state preserved at {delivery.run_dir}" if delivery else ""
-        raise WorkflowError(f"{error}{detail}{suffix}", code) from error
+    return _execute_new(lambda: _new_delivery(queue_path, config))
 
 
 def execute_issues(selector: str, config: str) -> int:
-    delivery: DeliveryRun | None = None
-    try:
-        delivery = _new_issue_delivery(selector, config)
-        return delivery.run()
-    except KeyboardInterrupt as error:
-        if delivery:
-            delivery.save()
-            raise WorkflowError(
-                f"Interrupted. Run state preserved at {delivery.run_dir}", INTERRUPTED
-            ) from error
-        raise WorkflowError("Interrupted.", INTERRUPTED) from error
-    except WorkflowError as error:
-        if delivery and delivery.run_dir.exists() and "Run state preserved at" not in str(error):
-            summary = delivery.failure_summary()
-            detail = f"\n{summary}" if summary else ""
-            raise WorkflowError(
-                f"{error}{detail}\nRun state preserved at {delivery.run_dir}", error.exit_code
-            ) from error
-        raise
-    except (CommandError, ContractError, AuditError, OSError, KeyError, TypeError) as error:
-        code = _phase_exit_code(delivery.state["phase"]) if delivery else PREFLIGHT
-        summary = delivery.failure_summary() if delivery else ""
-        detail = f"\n{summary}" if summary else ""
-        suffix = f"\nRun state preserved at {delivery.run_dir}" if delivery else ""
-        raise WorkflowError(f"{error}{detail}{suffix}", code) from error
+    return _execute_new(lambda: _new_issue_delivery(selector, config))
 
 
 def resume_delivery(run_id: str, instruction: str = "") -> int:

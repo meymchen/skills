@@ -28,6 +28,20 @@ def validate_state(state: dict[str, Any]) -> None:
         validate_contract(current["audit"], "audit")
     if current and current.get("metadata") is not None:
         validate_contract(current["metadata"], "metadata")
+    if state["index"] > len(state["issues"]):
+        raise ContractError("Run state index exceeds the issue queue length")
+    if state["phase"] == "complete":
+        if state["index"] != len(state["issues"]) or current is not None:
+            raise ContractError(
+                "Complete run state must have exhausted issues and no current issue"
+            )
+    elif state["phase"] in {"preflight", "prepare"}:
+        if state["index"] >= len(state["issues"]) or current is not None:
+            raise ContractError(
+                f"{state['phase']} run state must have a pending issue and no current issue"
+            )
+    elif state["index"] >= len(state["issues"]) or current is None:
+        raise ContractError(f"{state['phase']} run state requires a current pending issue")
 
 
 def load_state(path: Path) -> dict[str, Any]:

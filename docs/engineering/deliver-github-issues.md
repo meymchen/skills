@@ -22,22 +22,13 @@ placeholder commands and CI check names with real gates. Local commands are an
 executable plus an argument array; shell strings, pipes, and redirects are not
 interpreted.
 
-Set the skill directory once for the examples below:
-
-```console
-SKILL_DIR=/path/to/deliver-github-issues
-```
-
-On PowerShell, use `$SKILL_DIR = "C:\path\to\deliver-github-issues"` and keep
-the remaining `uv` arguments unchanged.
-
 ## Select issues
 
 Selectors accept individual issues, inclusive ranges, comma-separated mixes,
 and optional `#` prefixes:
 
 ```console
-uv run --project "$SKILL_DIR" --locked deliver-github-issues --issues "#19, #23-26"
+uv run --project <skill-dir> --locked deliver-github-issues --issues "#19, #23-26"
 ```
 
 The orchestrator removes duplicates and reads GitHub `blockedBy` and `blocking`
@@ -49,7 +40,7 @@ agent is required.
 Use a queue file for extra skills or per-issue instructions:
 
 ```console
-uv run --project "$SKILL_DIR" --locked deliver-github-issues --queue queue.json
+uv run --project <skill-dir> --locked deliver-github-issues --queue queue.json
 ```
 
 Queue files preserve their explicit issue order. The orchestrator prepends
@@ -61,7 +52,7 @@ Queue files preserve their explicit issue order. The orchestrator prepends
 no changes and creates no run directory:
 
 ```console
-uv run --project "$SKILL_DIR" --locked deliver-github-issues --issues "#19-23" --what-if
+uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --what-if
 ```
 
 ## Lifecycle
@@ -84,9 +75,7 @@ logs, and strict version-1 state beneath
 `.agent-runs/deliver-github-issues/<run-id>/`:
 
 ```console
-uv run --project "$SKILL_DIR" --locked deliver-github-issues \
-  --resume 20260813T021340Z-dc418758 \
-  --instruction "Fix the gaps listed in the acceptance audit."
+uv run --project <skill-dir> --locked deliver-github-issues --resume 20260813T021340Z-dc418758 --instruction "Fix the gaps listed in the acceptance audit."
 ```
 
 Resume always uses the policy embedded in the run. It therefore rejects
@@ -103,6 +92,7 @@ Resume always uses the policy embedded in the run. It therefore rejects
 | 50 | GitHub or tested-SHA drift |
 | 130 | User interruption; resumable state is preserved when possible |
 
-The implementation is verified on Windows and Ubuntu with Python 3.12. Tests
-use temporary repositories and fake external executables; they do not access
-live GitHub or agent services.
+The implementation is written portably and has a Windows／Ubuntu Python 3.12
+CI matrix. Tests use temporary repositories and fake external executables;
+they do not access live GitHub or agent services. Call it cross-platform only
+after both CI jobs pass for the exact commit under review.
