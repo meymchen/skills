@@ -7,8 +7,11 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from deliver_github_issues.agents import _opencode_primary_environment
 from deliver_github_issues.commands import CommandError, command_json, run_command
 from deliver_github_issues.metadata import (
+    _claude_metadata_arguments,
+    _codex_metadata_arguments,
     _has_tool_event,
     _opencode_environment,
     _run_kimi,
@@ -66,9 +69,9 @@ def _validate_skill_source(primary: str) -> dict[str, str]:
 
 
 def _validate_opencode_deny_all(log_path: Path) -> None:
-    environment = _opencode_environment()
     with tempfile.TemporaryDirectory(prefix="deliver-opencode-probe-") as temporary_name:
         temporary = Path(temporary_name)
+        environment = _opencode_environment(temporary / "xdg-config")
         config = command_json(
             run_command(
                 "opencode",
@@ -94,10 +97,21 @@ def _validate_opencode_deny_all(log_path: Path) -> None:
         or config.get("permission", {}).get("*") != "deny"
     ):
         raise CommandError("OpenCode effective global configuration is not deny-all.")
-    if (
-        agent.get("tools", {}).get("*") is not False
-        or agent.get("permission", {}).get("*") != "deny"
-    ):
+    tools = agent.get("tools", {})
+    permissions = agent.get("permission", {})
+    if isinstance(permissions, list):
+        wildcard = next(
+            (
+                rule
+                for rule in reversed(permissions)
+                if rule.get("permission") == "*" and rule.get("pattern") == "*"
+            ),
+            {},
+        )
+        deny_all = wildcard.get("action") == "deny"
+    else:
+        deny_all = permissions.get("*") == "deny"
+    if not tools or any(enabled is not False for enabled in tools.values()) or not deny_all:
         raise CommandError("OpenCode effective metadata agent is not deny-all.")
 
 
@@ -108,13 +122,51 @@ def _validate_kimi_agent_support(log_path: Path) -> None:
             raise CommandError(f"Kimi Code CLI does not support required option {option}.")
 
 
-def _validate_metadata_auth(provider: str, log_path: Path) -> None:
-    if provider == "opencode":
+def _validate_help_options(
+    provider: str, arguments: list[str], options: tuple[str, ...], log_path: Path
+) -> None:
+    help_text = run_command(provider, arguments, log_path=log_path).output
+    for option in options:
+        if option not in help_text:
+            raise CommandError(f"{provider} does not support required option {option}.")
+
+
+def _validate_metadata_support(provider: str, log_path: Path) -> None:
+    if provider == "codex":
+        _validate_help_options(
+            provider,
+            ["exec", "--help"],
+            ("--ignore-user-config", "--ignore-rules", "--output-schema", "--json"),
+            log_path,
+        )
+    elif provider == "claude":
+        _validate_help_options(
+            provider,
+            ["--help"],
+            ("--safe-mode", "--tools", "--json-schema", "--output-format"),
+            log_path,
+        )
+    elif provider == "opencode":
+        _validate_opencode_deny_all(log_path)
+    elif provider == "kimi":
+        _validate_kimi_agent_support(log_path)
+    else:
+        raise CommandError(f"Unsupported metadata provider: {provider}")
+
+
+def _validate_auth(provider: str, log_path: Path) -> None:
+    if provider == "codex":
+        run_command("codex", ["login", "status"], log_path=log_path)
+    elif provider == "claude":
+        run_command("claude", ["auth", "status"], log_path=log_path)
+    elif provider == "opencode":
         result = run_command("opencode", ["auth", "list"], log_path=log_path)
         if not result.output.strip():
             raise CommandError("OpenCode has no configured authentication provider.")
-    else:
+    elif provider == "kimi":
         run_command("kimi", ["doctor"], log_path=log_path)
+    else:
+        raise CommandError(f"Unsupported provider: {provider}")
 
 
 def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
@@ -136,7 +188,7 @@ def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
                 str(root),
                 f"$implement {request}",
             ]
-        else:
+        elif provider == "claude":
             settings_path = Path(temporary_name) / "claude-sandbox-settings.json"
             settings_path.write_text(
                 json.dumps(
@@ -164,7 +216,37 @@ def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
                 "Read",
                 f"/implement {request}",
             ]
-        result = run_command(provider, arguments, cwd=root, log_path=log_path, timeout_seconds=120)
+        elif provider == "opencode":
+            arguments = [
+                "run",
+                "--format",
+                "json",
+                "--dir",
+                str(root),
+                f"Use the implement skill. {request}",
+            ]
+        elif provider == "kimi":
+            skills_dir = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
+            arguments = [
+                "-p",
+                f"Use the implement skill. {request}",
+                "--agent",
+                "plan",
+                "--skills-dir",
+                str(skills_dir),
+                "--output-format",
+                "stream-json",
+            ]
+        else:
+            raise CommandError(f"Unsupported primary provider: {provider}")
+        result = run_command(
+            provider,
+            arguments,
+            cwd=root,
+            env=_opencode_primary_environment("review") if provider == "opencode" else None,
+            log_path=log_path,
+            timeout_seconds=120,
+        )
         output = (
             result_path.read_text(encoding="utf-8")
             if provider == "codex" and result_path.is_file()
@@ -176,15 +258,43 @@ def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
 
 
 def _dynamic_metadata_probe(provider: str, log_path: Path) -> None:
+    texts: list[str] = []
     with tempfile.TemporaryDirectory(prefix="deliver-metadata-probe-") as temporary_name:
         temporary = Path(temporary_name)
         prompt = "Return exactly METADATA_CAPABILITY_OK without using tools."
-        output = (
-            _run_opencode(prompt, temporary, 120, log_path)
-            if provider == "opencode"
-            else _run_kimi(prompt, temporary, 120, log_path)
-        )
-    texts: list[str] = []
+        if provider == "codex":
+            result_path = temporary / "result.txt"
+            result = run_command(
+                "codex",
+                [
+                    *_codex_metadata_arguments(temporary),
+                    "--output-last-message",
+                    str(result_path),
+                    "-",
+                ],
+                cwd=temporary,
+                input_text=prompt,
+                log_path=log_path,
+                timeout_seconds=120,
+            )
+            output = result.output
+            if result_path.is_file():
+                texts.append(result_path.read_text(encoding="utf-8"))
+        elif provider == "claude":
+            output = run_command(
+                "claude",
+                _claude_metadata_arguments(),
+                cwd=temporary,
+                input_text=prompt,
+                log_path=log_path,
+                timeout_seconds=120,
+            ).output
+        elif provider == "opencode":
+            output = _run_opencode(prompt, temporary, 120, log_path)
+        elif provider == "kimi":
+            output = _run_kimi(prompt, temporary, 120, log_path)
+        else:
+            raise CommandError(f"Unsupported metadata provider: {provider}")
     for line in output.splitlines():
         if not line.strip():
             continue
@@ -213,15 +323,9 @@ def validate_capabilities(
             required = ".".join(str(part) for part in minimum)
             raise CommandError(f"{provider} {text} is too old; require >= {required}.")
         versions[provider] = text
-    if agents["primary"] == "codex":
-        run_command("codex", ["login", "status"], log_path=log_path)
-    else:
-        run_command("claude", ["auth", "status"], log_path=log_path)
-    if agents["metadata"] == "opencode":
-        _validate_opencode_deny_all(log_path)
-    else:
-        _validate_kimi_agent_support(log_path)
-    _validate_metadata_auth(agents["metadata"], log_path)
+    for provider in dict.fromkeys((agents["primary"], agents["metadata"])):
+        _validate_auth(provider, log_path)
+    _validate_metadata_support(agents["metadata"], log_path)
     if dynamic:
         _dynamic_primary_probe(agents["primary"], root, log_path)
         _dynamic_metadata_probe(agents["metadata"], log_path)

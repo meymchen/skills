@@ -14,8 +14,8 @@
       "additionalProperties": false,
       "required": ["primary", "metadata", "versions"],
       "properties": {
-        "primary": { "enum": ["codex", "claude"] },
-        "metadata": { "enum": ["opencode", "kimi"] },
+        "primary": { "enum": ["codex", "claude", "opencode", "kimi"] },
+        "metadata": { "enum": ["codex", "claude", "opencode", "kimi"] },
         "versions": { "type": "object", "additionalProperties": { "type": "string" } }
       }
     },

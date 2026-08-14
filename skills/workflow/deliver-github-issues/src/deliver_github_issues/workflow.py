@@ -754,8 +754,12 @@ class DeliveryRun:
                 issue = _read_live_issue(number, self.run_dir)
                 if issue["updatedAt"] != current["issueUpdatedAt"]:
                     raise WorkflowError("Issue changed after the implementation snapshot.", DRIFT)
+                refs_before = _protected_refs(branch, self.root, self.log)
                 audit = invoke_agent_phase(
                     "audit", policy, self.state, item, issue, self.run_dir, self.root
+                )
+                _assert_primary_side_effect_free(
+                    self.state["current"], self.root, self.run_dir, self.log, refs_before
                 )
                 validate_audit(
                     audit,

@@ -102,6 +102,12 @@ def test_agent_options_use_strict_defaults_and_enums() -> None:
 
     assert defaults.primary_agent == "codex"
     assert defaults.metadata_agent == "opencode"
+    for provider in ("codex", "claude", "opencode", "kimi"):
+        selected = build_parser().parse_args(
+            ["--issues", "#14", "--primary-agent", provider, "--metadata-agent", provider]
+        )
+        assert selected.primary_agent == provider
+        assert selected.metadata_agent == provider
     assert run_cli("--issues", "#14", "--metadata-agent", "copilot").returncode == 10
 
 

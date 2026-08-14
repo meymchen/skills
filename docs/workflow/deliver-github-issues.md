@@ -12,10 +12,10 @@ failure.
 - Python 3.12 or newer;
 - uv 0.12.0 or newer;
 - Git and an authenticated GitHub CLI;
-- Codex CLI or Claude Code as primary;
-- when Claude is selected, a working Claude Code Bash sandbox (macOS, Linux,
-  or WSL2); native Windows fails closed;
-- OpenCode 1.18.18+ or Kimi Code CLI 0.29.0+ for metadata;
+- the CLIs selected for either role: Codex CLI, Claude Code, OpenCode 1.18.18+,
+  or Kimi Code CLI 0.29.0+;
+- when Claude is selected as primary, a working Claude Code Bash sandbox
+  (macOS, Linux, or WSL2); native Windows fails closed;
 - `implement`, `tdd`, and `code-review` installed by `npx skills` under
   `.agents/skills` and linked into `.claude/skills` when Claude is selected;
 - a clean target repository on its configured base branch;
@@ -63,10 +63,18 @@ Agent selection belongs to a new run, not repository policy:
 uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --primary-agent claude --metadata-agent kimi
 ```
 
-Primary defaults to `codex` and accepts `codex|claude`. Metadata defaults to
-`opencode` and accepts `opencode|kimi`. All CLIs use their own default model.
-The chosen providers and detected versions are embedded in run state; resume
-rejects new agent flags.
+Primary defaults to `codex`; metadata defaults to `opencode`. Both accept
+`codex|claude|opencode|kimi` independently, producing 16 valid routes. All CLIs
+use their own default model. The chosen providers and detected versions are
+embedded in run state; resume rejects new agent flags. There is no runtime
+auto-detection, fallback provider, or per-run model override.
+
+The 16 routes are covered by automated routing tests. The native Windows smoke
+matrix recorded on 2026-08-14 passed primary and metadata probes for Codex,
+OpenCode, and Kimi. Claude primary was not verified because the CLI reported
+that its required sandbox is unavailable on native Windows; Claude metadata was
+not verified because the configured organization rejected API access with HTTP
+403. These are explicit verification boundaries, not fallback conditions.
 
 ## Preview
 
@@ -80,8 +88,10 @@ uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --
 ## Lifecycle
 
 For each issue, the orchestrator fast-forwards the base, creates a branch, and
-invokes `$implement <full-issue-url>` in Codex or `/implement <full-issue-url>`
-in Claude. The primary may create local provisional commits and must use
+invokes `$implement <full-issue-url>` in Codex, `/implement <full-issue-url>` in
+Claude, or the corresponding shared `implement` skill in OpenCode and Kimi.
+OpenCode discovers `.agents/skills`; Kimi receives that directory through
+`--skills-dir`. The primary may create local provisional commits and must use
 `code-review`. The orchestrator runs local gates, squashes all Issue work to one final commit, creates or
 updates a pull request, waits for required CI, audits acceptance checkboxes,
 and squash-merges the exact tested SHA. It then removes only that issue branch
@@ -104,14 +114,19 @@ Recognized transient provider failures, such as rate limits or connection
 resets, are retried once; timeouts are not retried because the worker may have
 already changed the workspace.
 
-Metadata runs once on the normal path after local verification. OpenCode and
-Kimi run in isolated temporary working directories with no tools or subagents.
-Only verified summaries and successful command names are passed in; any tool
-event or invalid JSON stops the run without fallback.
+Metadata runs once on the normal path after local verification. Every provider
+runs in an isolated temporary working directory without project skills,
+plugins, or delegation. Claude, OpenCode, and Kimi receive an empty or deny-all
+tool set. Codex uses `read-only`, ignores user configuration and rules, disables
+MCP servers, and is rejected if its event stream contains a tool call; Codex CLI
+does not currently hide its registered built-in tools. Only verified summaries
+and successful command names are passed in. A tool event or invalid JSON stops
+the run without fallback or automatic repair.
 
 Preview performs static availability, version, authentication, skill-source,
-and no-tools configuration checks. A formal run additionally invokes
-read-only／no-tools capability probes before creating an issue branch.
+and role-specific isolation checks. A formal run additionally invokes the
+selected primary and metadata protocols through read-only／no-side-effect
+capability probes before creating an issue branch.
 
 Only acceptance criteria backed by direct file, successful-command, or CI-URL
 evidence are checked automatically. An `unsatisfied` result returns the run to

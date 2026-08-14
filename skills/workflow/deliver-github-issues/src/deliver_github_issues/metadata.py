@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from deliver_github_issues.commands import CommandError, run_command
-from deliver_github_issues.contracts import ContractError, validate_contract
+from deliver_github_issues.contracts import ContractError, schema_path, validate_contract
 
 
 def _assert_metadata(metadata: dict[str, Any], issue_number: int) -> None:
@@ -21,15 +21,29 @@ def _assert_metadata(metadata: dict[str, Any], issue_number: int) -> None:
 
 def _has_tool_event(event: dict[str, Any]) -> bool:
     event_type = str(event.get("type", "")).lower()
-    if "tool" in event_type or str(event.get("role", "")).lower() == "tool":
+    forbidden_types = {
+        "command_execution",
+        "file_change",
+        "mcp_tool_call",
+        "collab_tool_call",
+        "web_search",
+    }
+    if (
+        "tool" in event_type
+        or event_type in forbidden_types
+        or str(event.get("role", "")).lower() == "tool"
+    ):
         return True
     if any(event.get(key) for key in ("tool_calls", "toolCalls", "tool_call", "toolCall")):
         return True
-    return any(
-        _has_tool_event(nested)
-        for key in ("part", "message", "data")
-        if isinstance((nested := event.get(key)), dict)
-    )
+    for nested in event.values():
+        if isinstance(nested, dict) and _has_tool_event(nested):
+            return True
+        if isinstance(nested, list) and any(
+            isinstance(item, dict) and _has_tool_event(item) for item in nested
+        ):
+            return True
+    return False
 
 
 def _text_candidates(event: dict[str, Any]) -> list[str]:
@@ -39,6 +53,8 @@ def _text_candidates(event: dict[str, Any]) -> list[str]:
         candidates.append(part["text"])
     if isinstance(event.get("content"), str):
         candidates.append(event["content"])
+    if isinstance(event.get("result"), str):
+        candidates.append(event["result"])
     message = event.get("message")
     if isinstance(message, dict) and isinstance(message.get("content"), str):
         candidates.append(message["content"])
@@ -64,7 +80,9 @@ def _metadata_from_events(output: str, provider: str) -> dict[str, Any]:
         if _has_tool_event(event):
             raise ContractError(f"{provider} metadata stream contains a forbidden tool event.")
         if set(event) == {"commitTitle", "prTitle", "summary"}:
-            return event
+            candidates.append(json.dumps(event))
+        if isinstance(event.get("structured_output"), dict):
+            candidates.append(json.dumps(event["structured_output"]))
         candidates.extend(_text_candidates(event))
     for candidate in reversed(candidates):
         try:
@@ -92,7 +110,7 @@ def _metadata_prompt(state: dict[str, Any]) -> str:
     )
 
 
-def _opencode_environment() -> dict[str, str]:
+def _opencode_environment(config_home: Path | None = None) -> dict[str, str]:
     environment = os.environ.copy()
     deny_all = {"tools": {"*": False}, "permission": {"*": "deny"}}
     config = {
@@ -116,15 +134,99 @@ def _opencode_environment() -> dict[str, str]:
             "OPENCODE_DISABLE_MODELS_FETCH": "true",
         }
     )
+    if config_home is not None:
+        config_home.mkdir(parents=True, exist_ok=True)
+        environment["XDG_CONFIG_HOME"] = str(config_home)
     return environment
 
 
 def _prepare_kimi_home(target: Path) -> None:
-    source = Path(os.environ.get("KIMI_CODE_HOME", Path.home() / ".kimi"))
+    source = Path(os.environ.get("KIMI_CODE_HOME", Path.home() / ".kimi-code"))
     target.mkdir(parents=True, exist_ok=True)
+    config = source / "config.toml"
+    if config.is_file():
+        shutil.copy2(config, target / config.name)
     credentials = source / "credentials"
     if credentials.is_dir():
         shutil.copytree(credentials, target / credentials.name)
+
+
+def _codex_metadata_arguments(temporary: Path) -> list[str]:
+    return [
+        "exec",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--skip-git-repo-check",
+        "--json",
+        "-c",
+        "mcp_servers={}",
+        "-C",
+        str(temporary),
+    ]
+
+
+def _claude_metadata_arguments() -> list[str]:
+    return [
+        "--print",
+        "--no-session-persistence",
+        "--safe-mode",
+        "--tools",
+        "",
+        "--permission-mode",
+        "plan",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    ]
+
+
+def _run_codex(prompt: str, temporary: Path, timeout_seconds: int, log_path: Path) -> str:
+    result_path = temporary / "metadata-result.json"
+    result = run_command(
+        "codex",
+        [
+            *_codex_metadata_arguments(temporary),
+            "--output-schema",
+            str(schema_path("metadata")),
+            "--output-last-message",
+            str(result_path),
+            "-",
+        ],
+        cwd=temporary,
+        input_text=prompt,
+        log_path=log_path,
+        allow_failure=True,
+        timeout_seconds=timeout_seconds,
+        transient_retries=1,
+    )
+    if result.exit_code:
+        raise CommandError(f"codex metadata agent failed ({result.exit_code}).")
+    if not result_path.is_file():
+        raise ContractError("codex metadata agent produced no structured result.")
+    return result.output + "\n" + result_path.read_text(encoding="utf-8")
+
+
+def _run_claude(prompt: str, temporary: Path, timeout_seconds: int, log_path: Path) -> str:
+    result = run_command(
+        "claude",
+        [
+            *_claude_metadata_arguments(),
+            "--json-schema",
+            schema_path("metadata").read_text(encoding="utf-8"),
+        ],
+        cwd=temporary,
+        input_text=prompt,
+        log_path=log_path,
+        allow_failure=True,
+        timeout_seconds=timeout_seconds,
+        transient_retries=1,
+    )
+    if result.exit_code:
+        raise CommandError(f"claude metadata agent failed ({result.exit_code}).")
+    return result.output
 
 
 def _run_opencode(prompt: str, temporary: Path, timeout_seconds: int, log_path: Path) -> str:
@@ -142,7 +244,7 @@ def _run_opencode(prompt: str, temporary: Path, timeout_seconds: int, log_path: 
             prompt,
         ],
         cwd=temporary,
-        env=_opencode_environment(),
+        env=_opencode_environment(temporary / "xdg-config"),
         log_path=log_path,
         allow_failure=True,
         timeout_seconds=timeout_seconds,
@@ -208,7 +310,11 @@ def delivery_metadata(
     with tempfile.TemporaryDirectory(prefix="deliver-metadata-") as temporary_name:
         temporary = Path(temporary_name)
         timeout_seconds = policy["metadataTimeoutMinutes"] * 60
-        if provider == "opencode":
+        if provider == "codex":
+            output = _run_codex(prompt, temporary, timeout_seconds, log_path)
+        elif provider == "claude":
+            output = _run_claude(prompt, temporary, timeout_seconds, log_path)
+        elif provider == "opencode":
             output = _run_opencode(prompt, temporary, timeout_seconds, log_path)
         elif provider == "kimi":
             output = _run_kimi(prompt, temporary, timeout_seconds, log_path)
