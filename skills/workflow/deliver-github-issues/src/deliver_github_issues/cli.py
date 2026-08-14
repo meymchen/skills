@@ -18,6 +18,7 @@ from deliver_github_issues.workflow import (
 )
 
 PREFLIGHT_EXIT = 10
+AGENT_PROVIDERS = ("codex", "claude", "opencode", "kimi")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     operations.add_argument("--clean-summaries", action="store_true")
     parser.add_argument("--instruction", default="")
     parser.add_argument("--config")
-    parser.add_argument("--primary-agent", choices=("codex", "claude"), default="codex")
-    parser.add_argument("--metadata-agent", choices=("opencode", "kimi"), default="opencode")
+    parser.add_argument("--primary-agent", choices=AGENT_PROVIDERS, default="codex")
+    parser.add_argument("--metadata-agent", choices=AGENT_PROVIDERS, default="opencode")
     parser.add_argument("--keep-run-summary", action="store_true")
     parser.add_argument("--what-if", action="store_true")
     return parser

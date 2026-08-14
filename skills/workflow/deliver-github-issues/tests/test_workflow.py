@@ -33,6 +33,9 @@ if args[:2] == ['rev-parse', '--git-dir']:
 if args[:2] == ['remote', 'get-url']:
     print('https://github.com/meymchen/lspf.git'); raise SystemExit(0)
 if args and args[0] == 'show-ref': raise SystemExit(1)
+if args and args[0] == 'for-each-ref':
+    if (state / 'protected-ref-drift').exists(): print('refs/heads/main ' + 'b' * 40)
+    raise SystemExit(0)
 if args and args[0] == 'ls-remote':
     if (state / 'remote').exists(): print('a refs/heads/agent/issue-79'); raise SystemExit(0)
     raise SystemExit(2)
@@ -117,6 +120,7 @@ if schema.endswith('implement.schema.json'):
 elif schema.endswith('review.schema.json'):
     value = {'status':'passed','summary':'reviewed','usedSkills':['code-review'],'findings':[]}
 else:
+    if os.environ.get('DGI_FAKE_AUDIT_PUSH') == '1': (state / 'protected-ref-drift').touch()
     if os.environ.get('DGI_FAKE_HUMAN') == '1':
         value = {'summary':'human','criteria':[{'index':0,'text':'works','status':'human_required','evidence':[]}]}
     else:
@@ -368,6 +372,7 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
         ("DGI_FAKE_CONFLICT", 30),
         ("DGI_FAKE_HEAD_DRIFT", 50),
         ("DGI_FAKE_PRIMARY_PUSH", 50),
+        ("DGI_FAKE_AUDIT_PUSH", 50),
         ("DGI_FAKE_BAD_HANDOFF", 20),
         ("DGI_FAKE_BODY_DRIFT", 50),
     ]

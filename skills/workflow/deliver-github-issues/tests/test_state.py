@@ -52,6 +52,18 @@ def test_state_is_atomically_saved_and_loaded(tmp_path: Path) -> None:
     assert not (tmp_path / "state.json.tmp").exists()
 
 
+@pytest.mark.parametrize("primary", ("codex", "claude", "opencode", "kimi"))
+@pytest.mark.parametrize("metadata", ("codex", "claude", "opencode", "kimi"))
+def test_state_preserves_every_agent_route(tmp_path: Path, primary: str, metadata: str) -> None:
+    state = state_value()
+    state["agents"] = {"primary": primary, "metadata": metadata, "versions": {}}
+    path = tmp_path / "state.json"
+
+    save_state(state, path)
+
+    assert load_state(path)["agents"] == state["agents"]
+
+
 def test_state_rejects_unknown_properties(tmp_path: Path) -> None:
     state = state_value()
     state["legacy"] = True
