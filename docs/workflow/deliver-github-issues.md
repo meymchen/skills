@@ -22,10 +22,13 @@ failure.
 - squash merging enabled.
 
 Copy `assets/repository.example.json` from the skill to
-`.github/deliver-github-issues.json` in the target repository. Replace the
-placeholder commands, timeouts, retry limit, and CI check names with real gates. Local commands are an
-executable plus an argument array; shell strings, pipes, and redirects are not
-interpreted.
+`.scratch/deliver-github-issues.json` in the target repository. This local
+configuration does not need Git tracking; ensure `.scratch/` is ignored so the
+repository remains clean. Replace the placeholder commands, timeouts, retry
+limit, and CI check names with real gates. Local commands are an executable
+plus an argument array; shell strings, pipes, and redirects are not interpreted.
+Pass `--config <path>` when the repository intentionally shares a tracked
+policy at another path.
 
 ## Select issues
 

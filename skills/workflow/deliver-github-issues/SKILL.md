@@ -21,8 +21,10 @@ their explicit order only as a tie-breaker after dependency sorting. The orchest
 issue's skill list. Codex invokes it as `$implement <full-issue-url>`; Claude
 Code invokes the shared personal skill as `/implement <full-issue-url>`.
 
-Repository policy lives at `.github/deliver-github-issues.json`. Copy
-`assets/repository.example.json` there and replace its local and CI checks.
+Local repository configuration defaults to
+`.scratch/deliver-github-issues.json`, which does not need Git tracking. Copy
+`assets/repository.example.json` there and replace its local and CI checks. Use
+`--config <path>` when the repository intentionally shares a tracked policy.
 Agent routing is selected per new run. The primary defaults to Codex CLI and
 accepts `codex|claude|opencode|kimi`; metadata defaults to OpenCode and accepts
 the same four values. The roles are independent, so all 16 combinations are

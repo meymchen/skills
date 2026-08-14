@@ -67,7 +67,7 @@ def run(arguments: Sequence[str] | None = None) -> int:
     if args.resume and "--keep-run-summary" in argument_list:
         print("--keep-run-summary cannot be combined with --resume", file=sys.stderr)
         return PREFLIGHT_EXIT
-    config = args.config or ".github/deliver-github-issues.json"
+    config = args.config or ".scratch/deliver-github-issues.json"
     try:
         if args.what_if and args.queue:
             print(preview_queue(Path(args.queue), config, args.primary_agent, args.metadata_agent))

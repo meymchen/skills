@@ -1,7 +1,7 @@
 {
   "version": 1,
   "readyLabel": "ready-for-agent",
-  "branchPrefix": "codex/issue-",
+  "branchPrefix": "agent/issue-",
   "ciTimeoutMinutes": 60,
   "primaryTimeoutMinutes": 60,
   "metadataTimeoutMinutes": 5,

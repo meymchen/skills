@@ -188,7 +188,7 @@ print(json.dumps({'structured_output':value})); raise SystemExit(0)
 
 def test_happy_path_is_ordered_and_removes_successful_state(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     policy = {
         "version": 1,
@@ -257,7 +257,7 @@ def test_happy_path_is_ordered_and_removes_successful_state(tmp_path: Path) -> N
 
 def test_human_gate_preserves_state_and_requires_exact_acceptance(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     policy = {
         "version": 1,
@@ -320,7 +320,7 @@ def test_human_gate_preserves_state_and_requires_exact_acceptance(tmp_path: Path
 
 def test_issue_mode_uses_configured_claude_without_codex(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     policy = {
         "version": 1,
@@ -380,7 +380,7 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
         repository = tmp_path / str(index)
         repository.mkdir()
         (repository / ".git").mkdir()
-        config_dir = repository / ".github"
+        config_dir = repository / ".scratch"
         config_dir.mkdir()
         policy = {
             "version": 1,
@@ -446,7 +446,7 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
 
 def test_final_sha_gate_failure_returns_to_primary_fix_loop(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     policy = {
         "version": 1,

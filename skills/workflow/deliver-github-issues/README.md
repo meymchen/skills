@@ -33,8 +33,11 @@ skill separately with `npx skills@latest add meymchen/skills`.
 ## Run
 
 Copy [`assets/repository.example.json`](assets/repository.example.json) to
-`.github/deliver-github-issues.json` in the target repository and replace its
-placeholder commands and CI checks. Then run from the target repository:
+`.scratch/deliver-github-issues.json` in the target repository and replace its
+placeholder commands and CI checks. The local configuration does not need Git
+tracking; ensure `.scratch/` is ignored. Use `--config <path>` only when the
+repository intentionally shares a tracked policy. Then run from the target
+repository:
 
 ```console
 uv run --project <skill-dir> --locked deliver-github-issues --issues "#14, #15-18"

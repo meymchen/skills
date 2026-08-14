@@ -113,7 +113,7 @@ def test_agent_options_use_strict_defaults_and_enums() -> None:
 
 def test_what_if_preserves_queue_order_and_creates_no_state(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     (config_dir / "deliver-github-issues.json").write_text(
         json.dumps(
@@ -180,7 +180,7 @@ raise SystemExit(2)
 
 def test_issue_selector_is_dependency_sorted_with_configured_claude(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
-    config_dir = tmp_path / ".github"
+    config_dir = tmp_path / ".scratch"
     config_dir.mkdir()
     policy = {
         "version": 1,
