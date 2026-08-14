@@ -115,6 +115,60 @@ def test_opencode_runs_with_effective_deny_all_configuration(
     assert Path(captured["env"]["XDG_CONFIG_HOME"]).is_relative_to(Path(captured["cwd"]))
 
 
+def test_opencode_metadata_uses_the_model_opencode_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
+        if arguments[:2] == ["debug", "config"]:
+            return CommandResult(
+                json.dumps({"model": "anthropic/claude-sonnet-4-6", "tools": {"*": False}}),
+                "",
+                0,
+                "opencode debug config",
+            )
+        captured.update(command=command, arguments=arguments, **kwargs)
+        return CommandResult(
+            json.dumps({"type": "text", "part": {"text": _metadata_text()}}),
+            "",
+            0,
+            "opencode run",
+        )
+
+    monkeypatch.setattr(metadata, "run_command", fake_run)
+
+    result = metadata.delivery_metadata({"metadataTimeoutMinutes": 5}, _state("opencode"), tmp_path)
+
+    assert result["commitTitle"].endswith("(#123)")
+    inline = json.loads(captured["env"]["OPENCODE_CONFIG_CONTENT"])
+    assert inline["model"] == "anthropic/claude-sonnet-4-6"
+
+
+def test_opencode_metadata_falls_back_to_a_pinned_model_when_none_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
+        if arguments[:2] == ["debug", "config"]:
+            return CommandResult("{}", "", 0, "opencode debug config")
+        captured.update(command=command, arguments=arguments, **kwargs)
+        return CommandResult(
+            json.dumps({"type": "text", "part": {"text": _metadata_text()}}),
+            "",
+            0,
+            "opencode run",
+        )
+
+    monkeypatch.setattr(metadata, "run_command", fake_run)
+
+    metadata.delivery_metadata({"metadataTimeoutMinutes": 5}, _state("opencode"), tmp_path)
+
+    inline = json.loads(captured["env"]["OPENCODE_CONFIG_CONTENT"])
+    assert inline["model"] == "deepseek/deepseek-v4-flash"
+
+
 def test_kimi_uses_an_explicit_agent_with_no_tools_or_subagents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -45,3 +46,31 @@ def test_command_retries_one_recognized_transient_failure(
 
     assert calls == 2
     assert result.output == "done"
+
+
+def test_npm_batch_shim_is_unwrapped_to_its_native_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands.os, "name", "nt")
+    binary = tmp_path / "node_modules" / "agent-ai" / "bin" / "agent.exe"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("", encoding="utf-8")
+    shim = tmp_path / "agent.CMD"
+    shim.write_text(
+        '@ECHO off\n"%dp0%\\node_modules\\agent-ai\\bin\\agent.exe"   %*\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(commands.shutil, "which", lambda command: str(shim))
+
+    assert commands._resolve_executable("agent") == str(binary)
+
+
+def test_batch_shim_without_locatable_binary_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands.os, "name", "nt")
+    shim = tmp_path / "agent.CMD"
+    shim.write_text("@ECHO off\necho no delegation here\n", encoding="utf-8")
+    monkeypatch.setattr(commands.shutil, "which", lambda command: str(shim))
+
+    assert commands._resolve_executable("agent") == str(shim)

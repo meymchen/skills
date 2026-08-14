@@ -22,6 +22,7 @@ from deliver_github_issues.metadata import (
 _REQUIRED_SKILLS = ("implement", "tdd", "code-review")
 _VERSION = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
 _MINIMUM_METADATA_VERSIONS = {"opencode": (1, 18, 18), "kimi": (0, 29, 0)}
+_CAPABILITY_PROBE_TIMEOUT = 600
 
 
 def _version(provider: str, log_path: Path) -> tuple[str, tuple[int, int, int]]:
@@ -245,7 +246,7 @@ def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
             cwd=root,
             env=_opencode_primary_environment("review") if provider == "opencode" else None,
             log_path=log_path,
-            timeout_seconds=120,
+            timeout_seconds=_CAPABILITY_PROBE_TIMEOUT,
         )
         output = (
             result_path.read_text(encoding="utf-8")
@@ -275,7 +276,7 @@ def _dynamic_metadata_probe(provider: str, log_path: Path) -> None:
                 cwd=temporary,
                 input_text=prompt,
                 log_path=log_path,
-                timeout_seconds=120,
+                timeout_seconds=_CAPABILITY_PROBE_TIMEOUT,
             )
             output = result.output
             if result_path.is_file():
@@ -287,12 +288,12 @@ def _dynamic_metadata_probe(provider: str, log_path: Path) -> None:
                 cwd=temporary,
                 input_text=prompt,
                 log_path=log_path,
-                timeout_seconds=120,
+                timeout_seconds=_CAPABILITY_PROBE_TIMEOUT,
             ).output
         elif provider == "opencode":
-            output = _run_opencode(prompt, temporary, 120, log_path)
+            output = _run_opencode(prompt, temporary, _CAPABILITY_PROBE_TIMEOUT, log_path)
         elif provider == "kimi":
-            output = _run_kimi(prompt, temporary, 120, log_path)
+            output = _run_kimi(prompt, temporary, _CAPABILITY_PROBE_TIMEOUT, log_path)
         else:
             raise CommandError(f"Unsupported metadata provider: {provider}")
     for line in output.splitlines():

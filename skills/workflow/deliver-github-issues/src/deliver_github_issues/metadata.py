@@ -103,11 +103,41 @@ def _metadata_prompt(state: dict[str, Any]) -> str:
         "successfulChecks": successful,
     }
     return (
+        # Keep the prompt single-line: on Windows the opencode npm shim is a
+        # batch file, and multi-line argv does not reach the model intact.
+        "You have no tools available; do not attempt any tool calls. "
         "Return only a JSON object with string fields commitTitle, prTitle, and summary. "
         f"Both titles must be one line, at most 200 characters, and end with "
-        f"(#{current['number']}). Only restate facts in the supplied data.\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        f"(#{current['number']}). Only restate facts in the supplied data. "
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
+
+
+_PINNED_METADATA_MODEL = "deepseek/deepseek-v4-flash"
+
+
+def _opencode_configured_model() -> str:
+    environment = os.environ.copy()
+    environment["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
+    try:
+        result = run_command(
+            "opencode",
+            ["debug", "config"],
+            allow_failure=True,
+            timeout_seconds=60,
+            env=environment,
+        )
+    except CommandError:
+        return _PINNED_METADATA_MODEL
+    if result.exit_code == 0:
+        try:
+            value = json.loads(result.output)
+        except json.JSONDecodeError:
+            value = None
+        model = value.get("model") if isinstance(value, dict) else None
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+    return _PINNED_METADATA_MODEL
 
 
 def _opencode_environment(config_home: Path | None = None) -> dict[str, str]:
@@ -116,6 +146,12 @@ def _opencode_environment(config_home: Path | None = None) -> dict[str, str]:
     config = {
         **deny_all,
         "autoupdate": False,
+        # The metadata agent's XDG_CONFIG_HOME is redirected to a temporary
+        # directory, so opencode's own config is invisible to it. Resolve the
+        # user's effective model up front and inject it; when nothing is
+        # configured, fall back to a pinned model capable of the strict
+        # no-tools JSON contract.
+        "model": _opencode_configured_model(),
         "agent": {
             "metadata": {
                 "description": "Generate verified delivery metadata without tools.",
@@ -310,16 +346,33 @@ def delivery_metadata(
     with tempfile.TemporaryDirectory(prefix="deliver-metadata-") as temporary_name:
         temporary = Path(temporary_name)
         timeout_seconds = policy["metadataTimeoutMinutes"] * 60
-        if provider == "codex":
-            output = _run_codex(prompt, temporary, timeout_seconds, log_path)
-        elif provider == "claude":
-            output = _run_claude(prompt, temporary, timeout_seconds, log_path)
-        elif provider == "opencode":
-            output = _run_opencode(prompt, temporary, timeout_seconds, log_path)
-        elif provider == "kimi":
-            output = _run_kimi(prompt, temporary, timeout_seconds, log_path)
-        else:
-            raise ContractError(f"Unsupported metadata provider: {provider}")
-        metadata = _metadata_from_events(output, provider)
+        metadata: dict[str, Any] | None = None
+        extraction_error: ContractError | None = None
+        for attempt in range(2):
+            if attempt:
+                prompt += (
+                    " REMINDER: you have no tools; do not attempt tool calls. Reply with "
+                    "exactly one raw JSON object containing commitTitle, prTitle, and summary "
+                    "— no prose, no markdown code fence."
+                )
+            if provider == "codex":
+                output = _run_codex(prompt, temporary, timeout_seconds, log_path)
+            elif provider == "claude":
+                output = _run_claude(prompt, temporary, timeout_seconds, log_path)
+            elif provider == "opencode":
+                output = _run_opencode(prompt, temporary, timeout_seconds, log_path)
+            elif provider == "kimi":
+                output = _run_kimi(prompt, temporary, timeout_seconds, log_path)
+            else:
+                raise ContractError(f"Unsupported metadata provider: {provider}")
+            try:
+                metadata = _metadata_from_events(output, provider)
+                break
+            except ContractError as error:
+                extraction_error = error
+        if metadata is None:
+            raise extraction_error or ContractError(
+                f"{provider} metadata produced no structured result."
+            )
     _assert_metadata(metadata, state["current"]["number"])
     return metadata

@@ -138,6 +138,12 @@ def test_kimi_primary_uses_shared_skills_and_validates_event_output(
 ) -> None:
     captured: dict[str, object] = {}
     agents_home = tmp_path / ".agents"
+    for skill in ("implement", "tdd"):
+        skill_dir = agents_home / "skills" / skill
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {skill}\n---\n{skill} body\n", encoding="utf-8"
+        )
     monkeypatch.setenv("DGI_AGENTS_HOME", str(agents_home))
 
     def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
@@ -167,12 +173,16 @@ def test_kimi_primary_uses_shared_skills_and_validates_event_output(
     assert captured["command"] == "kimi"
     arguments = captured["arguments"]
     assert arguments[:1] == ["-p"]
-    assert "--auto" in arguments
+    # Print mode implies auto permission; --auto conflicts with -p since kimi 0.36.0.
+    assert "--auto" not in arguments
     assert "--output-format" in arguments and "stream-json" in arguments
     assert Path(arguments[arguments.index("--skills-dir") + 1]) == agents_home / "skills"
     assert str(arguments[1]).startswith(
         "Use the implement skill for https://github.com/acme/widgets/issues/123"
     )
+    # disable-model-invocation skills are inlined so a headless worker can follow them.
+    assert "implement body" in str(arguments[1])
+    assert "tdd body" in str(arguments[1])
     assert "--model" not in arguments
 
 
@@ -343,4 +353,7 @@ def test_every_primary_and_metadata_route_uses_the_selected_commands(
     }
     metadata_module.delivery_metadata({"metadataTimeoutMinutes": 5}, metadata_state, tmp_path)
 
-    assert commands == [f"primary:{primary}", f"metadata:{metadata}"]
+    expected = [f"primary:{primary}", f"metadata:{metadata}"]
+    if metadata == "opencode":
+        expected.append(f"metadata:{metadata}")
+    assert commands == expected

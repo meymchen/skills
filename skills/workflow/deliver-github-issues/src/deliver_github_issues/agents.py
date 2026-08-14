@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,15 @@ def _event_texts(value: Any) -> list[str]:
     return texts
 
 
+_FENCED_JSON = re.compile(r"```(?:json)?\s*\n(.*?)```", re.DOTALL)
+
+
+def _json_variants(text: str) -> list[str]:
+    variants = [text]
+    variants.extend(match.group(1) for match in _FENCED_JSON.finditer(text))
+    return variants
+
+
 def _structured_from_events(output: str, provider: str, phase: str) -> dict[str, Any]:
     candidates: list[str] = []
     for line in output.splitlines():
@@ -44,13 +54,21 @@ def _structured_from_events(output: str, provider: str, phase: str) -> dict[str,
             candidates.append(json.dumps(event))
         candidates.extend(_event_texts(event))
     for candidate in reversed(candidates):
-        try:
-            value = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
+        for variant in _json_variants(candidate):
+            try:
+                value = json.loads(variant)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, dict):
+                continue
+            try:
+                validate_contract(value, phase)
+            except ContractError:
+                continue
             return value
-    raise ContractError(f"{provider} {phase} stream produced no JSON object response.")
+    raise ContractError(
+        f"{provider} {phase} stream produced no schema-valid {phase} result object."
+    )
 
 
 def _opencode_primary_environment(phase: str) -> dict[str, str]:
@@ -157,7 +175,14 @@ def invoke_agent_phase(
     elif phase == "review":
         skill_instruction = "Invoke only code-review; do not rerun implementation skills. "
     else:
-        skill_instruction = "Do not invoke implementation skills during the acceptance audit. "
+        skill_instruction = (
+            "Do not invoke implementation skills during the acceptance audit. "
+            "Evidence values are machine-verified and must be exact: for kind \"file\", a "
+            "workspace-relative path with an optional :line suffix and nothing else (no code "
+            "snippets); for kind \"command\", one of the supplied successful localChecks "
+            "commands verbatim; for kind \"ci\", one of the supplied passing ciChecks links "
+            "verbatim. "
+        )
     prompt = (
         invocation
         + "\n\n"
@@ -168,7 +193,10 @@ def invoke_agent_phase(
             + f"Follow the {phase} contract: implement "
             "may edit the workspace, create provisional local commits, and run targeted tests; "
             "review and audit must keep it read-only; review reports every finding and audit must "
-            "classify every supplied checkbox. Return only the requested schema object.\nInput:\n"
+            "classify every supplied checkbox. Return only the requested schema object; it must "
+            "validate against this JSON schema:\n"
+            + schema.read_text(encoding="utf-8")
+            + "\nInput:\n"
             + json.dumps(payload, ensure_ascii=False, indent=2)
         )
     )
@@ -181,6 +209,27 @@ def invoke_agent_phase(
             "can inspect the full diff. Return control to the workflow after the structured "
             "handoff.\nInput:\n",
         )
+    if provider == "kimi":
+        # kimi hides disable-model-invocation skills (implement) from the model,
+        # so a headless worker cannot invoke them; inline the skill text instead.
+        phase_skill_names = (
+            queue_item["skills"]
+            if phase == "implement"
+            else ["code-review"]
+            if phase == "review"
+            else []
+        )
+        skills_root = (
+            Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
+        )
+        for name in dict.fromkeys(phase_skill_names):
+            skill_path = skills_root / name / "SKILL.md"
+            prompt += (
+                f"\n\nThe {name} skill cannot be invoked through the Skill tool in this "
+                "headless session; its full text follows — follow it exactly, and still "
+                f'report "{name}" in usedSkills:\n'
+                + skill_path.read_text(encoding="utf-8")
+            )
     prompt_path.write_text(prompt, encoding="utf-8", newline="\n")
     if provider == "codex":
         sandbox = "read-only" if phase in {"audit", "review"} else "workspace-write"
@@ -316,16 +365,8 @@ def invoke_agent_phase(
         )
     elif provider == "kimi":
         skills_dir = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
-        mode = ["--agent", "plan"] if phase in {"review", "audit"} else ["--auto"]
-        arguments = [
-            "-p",
-            prompt,
-            *mode,
-            "--skills-dir",
-            str(skills_dir),
-            "--output-format",
-            "stream-json",
-        ]
+        # Print mode already runs with auto permission; --auto conflicts with -p.
+        mode = ["--agent", "plan"] if phase in {"review", "audit"} else []
         environment = os.environ.copy()
         environment.update(
             {
@@ -333,23 +374,49 @@ def invoke_agent_phase(
                 "KIMI_CODE_NO_AUTO_UPDATE": "1",
             }
         )
-        result = run_command(
-            "kimi",
-            arguments,
-            cwd=root,
-            env=environment,
-            allow_failure=True,
-            timeout_seconds=policy["primaryTimeoutMinutes"] * 60,
-            transient_retries=1,
-        )
-        events_path.write_text(
-            result.output + (("\n" + result.stderr) if result.stderr else ""),
-            encoding="utf-8",
-            newline="\n",
-        )
-        if result.exit_code:
-            raise CommandError(f"Kimi {phase} failed with exit code {result.exit_code}.")
-        structured = _structured_from_events(result.output, provider, phase)
+        structured: dict[str, Any] | None = None
+        extraction_error: ContractError | None = None
+        for attempt in range(2):
+            if attempt:
+                prompt += (
+                    "\n\nREMINDER: reply with exactly one raw JSON object conforming to the "
+                    "requested schema — no prose, no markdown code fence, nothing before or "
+                    "after it."
+                )
+            arguments = [
+                "-p",
+                prompt,
+                *mode,
+                "--skills-dir",
+                str(skills_dir),
+                "--output-format",
+                "stream-json",
+            ]
+            result = run_command(
+                "kimi",
+                arguments,
+                cwd=root,
+                env=environment,
+                allow_failure=True,
+                timeout_seconds=policy["primaryTimeoutMinutes"] * 60,
+                transient_retries=1,
+            )
+            events_path.write_text(
+                result.output + (("\n" + result.stderr) if result.stderr else ""),
+                encoding="utf-8",
+                newline="\n",
+            )
+            if result.exit_code:
+                raise CommandError(f"Kimi {phase} failed with exit code {result.exit_code}.")
+            try:
+                structured = _structured_from_events(result.output, provider, phase)
+                break
+            except ContractError as error:
+                extraction_error = error
+        if structured is None:
+            raise extraction_error or ContractError(
+                f"kimi {phase} produced no structured result."
+            )
         result_path.write_text(
             json.dumps(structured, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )

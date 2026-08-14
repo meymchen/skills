@@ -68,7 +68,9 @@ uv run --project <skill-dir> --locked deliver-github-issues --issues "#19-23" --
 
 Primary defaults to `codex`; metadata defaults to `opencode`. Both accept
 `codex|claude|opencode|kimi` independently, producing 16 valid routes. All CLIs
-use their own default model. The chosen providers and detected versions are
+use their own default model; the OpenCode metadata agent reuses the model from
+OpenCode's own resolved configuration, falling back to a pinned capable model
+when none is set. The chosen providers and detected versions are
 embedded in run state; resume rejects new agent flags. There is no runtime
 auto-detection, fallback provider, or per-run model override.
 
@@ -147,7 +149,8 @@ uv run --project <skill-dir> --locked deliver-github-issues --resume 20260813T02
 ```
 
 Resume always uses the policy and agents embedded in the run. It therefore
-rejects `--config`, `--what-if`, and agent flags. Successful runs remove their
+rejects `--config`, `--what-if`, and agent flags. A run interrupted during
+preflight re-runs its preflight checks on resume before continuing. Successful runs remove their
 active run directory and retain a compact summary with a 30-day expiry under
 `.agent-runs/deliver-github-issues/summaries/`.
 

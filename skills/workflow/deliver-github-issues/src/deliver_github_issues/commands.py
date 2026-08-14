@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -15,6 +17,28 @@ _TRANSIENT_FAILURE_MARKERS = (
     "temporary failure",
     "try again later",
 )
+
+# npm installs Windows launchers as batch shims ("<pkg>.CMD") that delegate to a
+# native binary via "%dp0%\node_modules\...\bin\foo.exe" %*. cmd.exe batch
+# parsing mangles multi-line and long arguments, so prefer the target .exe.
+_NPM_SHIM_TARGET = re.compile(r'"(?P<target>%dp0%[^"]+?\.exe)"\s+%\*', re.IGNORECASE)
+
+
+def _resolve_executable(command: str) -> str:
+    executable = shutil.which(command)
+    if executable is None:
+        raise CommandError(f"Required command is unavailable: {command}")
+    if os.name != "nt" or not executable.lower().endswith((".cmd", ".bat")):
+        return executable
+    try:
+        text = Path(executable).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return executable
+    match = _NPM_SHIM_TARGET.search(text)
+    if match is None:
+        return executable
+    target = match.group("target").replace("%dp0%", str(Path(executable).parent))
+    return target if Path(target).is_file() else executable
 
 
 class CommandError(RuntimeError):
@@ -41,9 +65,7 @@ def run_command(
     timeout_seconds: int | None = None,
     transient_retries: int = 0,
 ) -> CommandResult:
-    executable = shutil.which(command)
-    if executable is None:
-        raise CommandError(f"Required command is unavailable: {command}")
+    executable = _resolve_executable(command)
     argv = [executable, *arguments]
     rendered = shlex.join(argv)
     if log_path:

@@ -444,6 +444,70 @@ def test_failures_use_fixed_exit_codes_and_preserve_state(tmp_path: Path) -> Non
             assert "exit=9" in (run_dir / "79-local-test.log").read_text(encoding="utf-8")
 
 
+def test_resume_after_preflight_failure_reruns_preflight(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    config_dir = tmp_path / ".scratch"
+    config_dir.mkdir()
+    policy = {
+        "version": 1,
+        "readyLabel": "ready-for-agent",
+        "branchPrefix": "agent/issue-",
+        "ciTimeoutMinutes": 1,
+        "primaryTimeoutMinutes": 60,
+        "metadataTimeoutMinutes": 5,
+        "maxPrimaryFixAttempts": 3,
+        "localChecks": [{"name": "test", "command": "check", "arguments": ["ok"]}],
+        "requiredChecks": ["test"],
+    }
+    (config_dir / "deliver-github-issues.json").write_text(json.dumps(policy), encoding="utf-8")
+    queue_path = tmp_path / "queue.json"
+    queue_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repository": "meymchen/lspf",
+                "baseBranch": "main",
+                "issues": [{"number": 79, "skills": ["tdd"], "instruction": ""}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "bin"
+    install_fakes(fake_bin)
+    environment = isolated_agent_environment(fake_bin)
+    environment["DGI_FAKE_STATE"] = str(tmp_path / "fake-state")
+    environment["DGI_FAKE_DIRTY"] = "1"
+
+    stopped = subprocess.run(
+        [sys.executable, "-m", "deliver_github_issues.cli", "--queue", str(queue_path)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert stopped.returncode == 10, stopped.stderr
+    run_dir = next((tmp_path / ".agent-runs" / "deliver-github-issues").iterdir())
+    state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    assert state["phase"] == "preflight"
+
+    del environment["DGI_FAKE_DIRTY"]
+    resumed = subprocess.run(
+        [sys.executable, "-m", "deliver_github_issues.cli", "--resume", run_dir.name],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert "Delivered 1 issue(s) in queue order." in resumed.stdout
+    assert not run_dir.exists()
+
+
 def test_final_sha_gate_failure_returns_to_primary_fix_loop(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     config_dir = tmp_path / ".scratch"

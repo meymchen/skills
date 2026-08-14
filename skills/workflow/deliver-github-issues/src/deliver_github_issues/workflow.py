@@ -860,26 +860,27 @@ class DeliveryRun:
                 )
                 if pull_request["headRefOid"] != current["testedSha"]:
                     raise WorkflowError("PR head drifted before merge.", DRIFT)
-                if (
-                    pull_request["isDraft"]
-                    or pull_request["mergeStateStatus"] == "DIRTY"
-                    or pull_request["reviewDecision"] in {"CHANGES_REQUESTED", "REVIEW_REQUIRED"}
-                ):
-                    raise WorkflowError("PR still requires human action.", ACCEPTANCE)
-                run_command(
-                    "gh",
-                    [
-                        "pr",
-                        "merge",
-                        str(current["prNumber"]),
-                        "--squash",
-                        "--match-head-commit",
-                        current["testedSha"],
-                        "--subject",
-                        current["metadata"]["prTitle"],
-                    ],
-                    log_path=self.log,
-                )
+                if pull_request["state"] != "MERGED":
+                    if (
+                        pull_request["isDraft"]
+                        or pull_request["mergeStateStatus"] == "DIRTY"
+                        or pull_request["reviewDecision"] in {"CHANGES_REQUESTED", "REVIEW_REQUIRED"}
+                    ):
+                        raise WorkflowError("PR still requires human action.", ACCEPTANCE)
+                    run_command(
+                        "gh",
+                        [
+                            "pr",
+                            "merge",
+                            str(current["prNumber"]),
+                            "--squash",
+                            "--match-head-commit",
+                            current["testedSha"],
+                            "--subject",
+                            current["metadata"]["prTitle"],
+                        ],
+                        log_path=self.log,
+                    )
                 merged = command_json(
                     run_command(
                         "gh",
@@ -1150,7 +1151,15 @@ def resume_delivery(run_id: str, instruction: str = "") -> int:
         raise WorkflowError("Run is already complete.", PREFLIGHT)
     delivery = DeliveryRun(root, run_dir, state)
     try:
-        if state["current"] is not None and state["phase"] != "prepare":
+        if state["phase"] == "preflight":
+            # A run that failed during preflight must redo it; run() has no
+            # preflight branch and would otherwise spin without progress.
+            state["agents"]["versions"] = _preflight(
+                state, state["policy"], state["agents"], root, run_dir
+            )
+            state["phase"] = "prepare"
+            delivery.save()
+        if state["current"] is not None and state["phase"] not in {"prepare", "merge"}:
             actual_branch = run_command(
                 "git", ["branch", "--show-current"], log_path=delivery.log
             ).output.strip()
