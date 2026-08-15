@@ -51,7 +51,6 @@ def test_command_retries_one_recognized_transient_failure(
 def test_npm_batch_shim_is_unwrapped_to_its_native_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(commands.os, "name", "nt")
     binary = tmp_path / "node_modules" / "agent-ai" / "bin" / "agent.exe"
     binary.parent.mkdir(parents=True)
     binary.write_text("", encoding="utf-8")
@@ -68,7 +67,6 @@ def test_npm_batch_shim_is_unwrapped_to_its_native_binary(
 def test_batch_shim_without_locatable_binary_is_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(commands.os, "name", "nt")
     shim = tmp_path / "agent.CMD"
     shim.write_text("@ECHO off\necho no delegation here\n", encoding="utf-8")
     monkeypatch.setattr(commands.shutil, "which", lambda command: str(shim))

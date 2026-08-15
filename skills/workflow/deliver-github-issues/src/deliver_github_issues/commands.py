@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shlex
 import shutil
@@ -28,7 +27,7 @@ def _resolve_executable(command: str) -> str:
     executable = shutil.which(command)
     if executable is None:
         raise CommandError(f"Required command is unavailable: {command}")
-    if os.name != "nt" or not executable.lower().endswith((".cmd", ".bat")):
+    if not executable.lower().endswith((".cmd", ".bat")):
         return executable
     try:
         text = Path(executable).read_text(encoding="utf-8", errors="replace")
