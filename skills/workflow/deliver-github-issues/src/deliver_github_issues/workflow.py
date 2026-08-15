@@ -603,11 +603,17 @@ class DeliveryRun:
                         log_path=self.log,
                     ).output.splitlines()
                 )
-                if set(result["changedFiles"]) != changed_files:
+                if not set(result["changedFiles"]) <= changed_files:
                     raise WorkflowError(
                         "Primary handoff changedFiles differs from the Git diff.", IMPLEMENTATION
                     )
-                if result["commitSha"] is not None and result["commitSha"] != head:
+                # Git is the source of truth: fix rounds legitimately report only the
+                # files touched in that round, not the cumulative branch diff.
+                result["changedFiles"] = sorted(changed_files)
+                reported_sha = result["commitSha"]
+                if reported_sha is not None and not (
+                    len(reported_sha) >= 7 and head.startswith(reported_sha)
+                ):
                     raise WorkflowError(
                         "Primary handoff commitSha differs from HEAD.", IMPLEMENTATION
                     )
@@ -621,6 +627,13 @@ class DeliveryRun:
                         log_path=self.log,
                     )
                 self.state["current"]["implementation"] = result
+                # Refresh local checks before review so the reviewer never judges a
+                # stale failing log from an earlier round (review itself is read-only).
+                try:
+                    _local_gates(self.state, policy, self.run_dir, self.save)
+                except WorkflowError as error:
+                    self.schedule_fix(str(error), IMPLEMENTATION)
+                    continue
                 self.state["phase"] = "review"
                 self.save()
             if self.state["phase"] == "review":

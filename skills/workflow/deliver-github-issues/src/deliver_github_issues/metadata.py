@@ -99,6 +99,8 @@ def _metadata_prompt(state: dict[str, Any]) -> str:
     successful = [check["command"] for check in current["localChecks"] if check["exitCode"] == 0]
     payload = {
         "issue": {"number": current["number"], "title": current["title"]},
+        "acceptanceCriteria": [c["text"] for c in current["checkboxes"]],
+        "changedFiles": current["implementation"]["changedFiles"],
         "verifiedImplementationSummary": current["implementation"]["summary"],
         "successfulChecks": successful,
     }
@@ -108,7 +110,12 @@ def _metadata_prompt(state: dict[str, Any]) -> str:
         "You have no tools available; do not attempt any tool calls. "
         "Return only a JSON object with string fields commitTitle, prTitle, and summary. "
         f"Both titles must be one line, at most 200 characters, and end with "
-        f"(#{current['number']}). Only restate facts in the supplied data. "
+        f"(#{current['number']}). The summary becomes the pull request body: GitHub "
+        "Markdown under 4000 characters, one lead sentence followed by a "
+        "'## What changed' section of bullets describing the delivered change as a "
+        "whole. Describe only the final state: never mention commit SHAs, fix or "
+        "review rounds, or the delivery process, and do not add a verification "
+        "section. Only restate facts in the supplied data. "
         + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
 

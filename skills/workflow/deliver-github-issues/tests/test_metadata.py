@@ -16,7 +16,11 @@ def _state(provider: str) -> dict[str, object]:
         "current": {
             "number": 123,
             "title": "Ship metadata safely",
-            "implementation": {"summary": "Added the requested behavior."},
+            "checkboxes": [],
+            "implementation": {
+                "summary": "Added the requested behavior.",
+                "changedFiles": ["src/feature.py"],
+            },
             "localChecks": [{"command": "uv run pytest", "exitCode": 0}],
         },
     }

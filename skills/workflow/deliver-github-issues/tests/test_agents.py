@@ -347,7 +347,8 @@ def test_every_primary_and_metadata_route_uses_the_selected_commands(
         "current": {
             "number": 123,
             "title": "Ship it",
-            "implementation": {"summary": "implemented"},
+            "checkboxes": [],
+            "implementation": {"summary": "implemented", "changedFiles": ["src/feature.py"]},
             "localChecks": [],
         },
     }
