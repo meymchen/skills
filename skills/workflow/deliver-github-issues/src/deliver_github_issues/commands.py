@@ -37,8 +37,9 @@ def _resolve_executable(command: str) -> str:
     match = _NPM_SHIM_TARGET.search(text)
     if match is None:
         return executable
-    target = match.group("target").replace("%dp0%", str(Path(executable).parent))
-    return target if Path(target).is_file() else executable
+    raw_target = match.group("target").replace("%dp0%", str(Path(executable).parent))
+    target = Path(raw_target.replace("\\", "/"))
+    return str(target) if target.is_file() else executable
 
 
 class CommandError(RuntimeError):

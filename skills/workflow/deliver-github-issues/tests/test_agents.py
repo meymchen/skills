@@ -39,6 +39,19 @@ def _implementation_result() -> dict[str, object]:
     }
 
 
+def _install_skill_fixtures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...]
+) -> None:
+    agents_home = tmp_path / ".agents"
+    for name in names:
+        skill_dir = agents_home / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\n---\n{name} body\n", encoding="utf-8"
+        )
+    monkeypatch.setenv("DGI_AGENTS_HOME", str(agents_home))
+
+
 @pytest.mark.parametrize(
     ("provider", "prefix", "skill_marker"),
     [
@@ -137,14 +150,7 @@ def test_kimi_primary_uses_shared_skills_and_validates_event_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict[str, object] = {}
-    agents_home = tmp_path / ".agents"
-    for skill in ("implement", "tdd"):
-        skill_dir = agents_home / "skills" / skill
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            f"---\nname: {skill}\n---\n{skill} body\n", encoding="utf-8"
-        )
-    monkeypatch.setenv("DGI_AGENTS_HOME", str(agents_home))
+    _install_skill_fixtures(tmp_path, monkeypatch, ("implement", "tdd"))
 
     def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
         captured.update(command=command, arguments=arguments, **kwargs)
@@ -176,7 +182,7 @@ def test_kimi_primary_uses_shared_skills_and_validates_event_output(
     # Print mode implies auto permission; --auto conflicts with -p since kimi 0.36.0.
     assert "--auto" not in arguments
     assert "--output-format" in arguments and "stream-json" in arguments
-    assert Path(arguments[arguments.index("--skills-dir") + 1]) == agents_home / "skills"
+    assert Path(arguments[arguments.index("--skills-dir") + 1]) == tmp_path / ".agents" / "skills"
     assert str(arguments[1]).startswith(
         "Use the implement skill for https://github.com/acme/widgets/issues/123"
     )
@@ -228,6 +234,7 @@ def test_kimi_review_selects_the_read_only_plan_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict[str, object] = {}
+    _install_skill_fixtures(tmp_path, monkeypatch, ("code-review",))
 
     def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
         captured["arguments"] = arguments
@@ -299,6 +306,7 @@ def test_every_primary_and_metadata_route_uses_the_selected_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, primary: str, metadata: str
 ) -> None:
     commands: list[str] = []
+    _install_skill_fixtures(tmp_path, monkeypatch, ("implement", "tdd", "code-review"))
 
     def fake_primary(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
         commands.append(f"primary:{command}")
