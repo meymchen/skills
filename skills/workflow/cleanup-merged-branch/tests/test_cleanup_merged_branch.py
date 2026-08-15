@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import subprocess
-import sys
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-
 
 SKILL_ROOT = Path(__file__).parents[1]
 SCRIPT = SKILL_ROOT / "scripts" / "cleanup_merged_branch.py"
@@ -79,9 +78,7 @@ def create_merged_repository(directory: Path) -> tuple[Path, str, str]:
     run_git(repository, "config", "user.name", "Test User")
     run_git(repository, "config", "user.email", "test@example.com")
     run_git(repository, "config", "protocol.file.allow", "always")
-    (repository / ".gitignore").write_text(
-        "__pycache__/\n.pytest_cache/\n", encoding="utf-8"
-    )
+    (repository / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n", encoding="utf-8")
     (repository / "app.txt").write_text("base\n", encoding="utf-8")
     run_git(repository, "add", ".gitignore", "app.txt")
     run_git(repository, "commit", "-m", "initial")
@@ -187,10 +184,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             repository_root / "docs" / "workflow" / "cleanup-merged-branch.md"
         ).read_text(encoding="utf-8")
         workflow = (
-            repository_root
-            / ".github"
-            / "workflows"
-            / "cleanup-merged-branch-python.yml"
+            repository_root / ".github" / "workflows" / "cleanup-merged-branch-python.yml"
         ).read_text(encoding="utf-8")
 
         self.assertIn("disable-model-invocation: true", skill)
@@ -202,14 +196,10 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
         self.assertIn("ubuntu-latest", workflow)
         self.assertIn("windows-latest", workflow)
         self.assertFalse(
-            repository_root.joinpath(
-                "skills", "engineering", "deliver-github-issues"
-            ).exists()
+            repository_root.joinpath("skills", "engineering", "deliver-github-issues").exists()
         )
         self.assertFalse(
-            repository_root.joinpath(
-                "docs", "engineering", "deliver-github-issues.md"
-            ).exists()
+            repository_root.joinpath("docs", "engineering", "deliver-github-issues.md").exists()
         )
 
     def test_help_exposes_the_supported_public_options(self) -> None:
@@ -266,17 +256,12 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                run_git(repository, "branch", "--show-current").stdout.strip(), "main"
-            )
+            self.assertEqual(run_git(repository, "branch", "--show-current").stdout.strip(), "main")
             branches = run_git(repository, "branch", "--format=%(refname:short)").stdout
             self.assertNotIn("feat/3-cleanup", branches.splitlines())
             self.assertFalse((repository / "package" / "__pycache__").exists())
             self.assertFalse((repository / ".pytest_cache").exists())
-            calls = [
-                json.loads(line)
-                for line in gh_log.read_text(encoding="utf-8").splitlines()
-            ]
+            calls = [json.loads(line) for line in gh_log.read_text(encoding="utf-8").splitlines()]
             self.assertTrue(all(call[0] in {"auth", "repo", "pr"} for call in calls))
             self.assertNotIn("edit", {argument for call in calls for argument in call})
 
@@ -319,9 +304,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(
-                f"Would delete branch: feat/3-cleanup @ {source_sha}", result.stdout
-            )
+            self.assertIn(f"Would delete branch: feat/3-cleanup @ {source_sha}", result.stdout)
             self.assertEqual(
                 run_git(repository, "branch", "--show-current").stdout.strip(),
                 "feat/3-cleanup",
@@ -345,9 +328,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             self.assertIn("not merged", result.stderr)
 
             run_git(repository, "push", "origin", "feat/3-cleanup")
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
             self.assertEqual(result.returncode, 2)
             self.assertIn("remote source branch still exists", result.stderr)
             run_git(repository, "push", "origin", "--delete", "feat/3-cleanup")
@@ -361,9 +342,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             self.assertIn("differs from PR head", result.stderr)
 
             (repository / "notes.txt").write_text("uncommitted\n", encoding="utf-8")
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
             self.assertEqual(result.returncode, 2)
             self.assertIn("uncommitted or untracked", result.stderr)
 
@@ -397,14 +376,10 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repository, source_sha, merge_sha = create_merged_repository(root)
-            git_dir = Path(
-                run_git(repository, "rev-parse", "--absolute-git-dir").stdout.strip()
-            )
+            git_dir = Path(run_git(repository, "rev-parse", "--absolute-git-dir").stdout.strip())
             (git_dir / "REBASE_HEAD").write_text(source_sha + "\n", encoding="utf-8")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("merge or rebase is in progress", result.stderr)
@@ -419,9 +394,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             run_git(repository, "commit", "-m", "local default divergence")
             run_git(repository, "switch", "feat/3-cleanup")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("cannot be fast-forwarded", result.stderr)
@@ -433,9 +406,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             other_worktree = root / "default-worktree"
             run_git(repository, "worktree", "add", str(other_worktree), "main")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("checked out in another worktree", result.stderr)
@@ -449,9 +420,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             nested_git.mkdir(parents=True)
             (nested_git / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("nested Git repository", result.stdout)
@@ -468,9 +437,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             run_git(repository, "commit", "-m", "track cache fixture")
             source_sha = run_git(repository, "rev-parse", "HEAD").stdout.strip()
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("target contains tracked files", result.stdout)
@@ -489,9 +456,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             except OSError as error:
                 self.skipTest(f"directory links unavailable: {error}")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("symbolic link or junction", result.stdout)
@@ -511,9 +476,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             nested.mkdir(parents=True)
             (nested / "module.pyc").write_bytes(b"cache")
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((repository / ".tox").exists())
@@ -526,9 +489,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             with huge.open("wb") as stream:
                 stream.truncate(2 * 1024 * 1024 * 1024 + 1)
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("exceeds hard limit", result.stderr)
@@ -546,9 +507,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             for index in range(10_001):
                 (cache / f"entry-{index}").touch()
 
-            result, _ = invoke_cleanup(
-                root, repository, github_state(source_sha, merge_sha)
-            )
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("exceeds hard limit", result.stderr)
@@ -572,9 +531,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertIn("Source branch already absent", second.stdout)
             self.assertFalse(cache.exists())
-            self.assertEqual(
-                run_git(repository, "branch", "--show-current").stdout.strip(), "main"
-            )
+            self.assertEqual(run_git(repository, "branch", "--show-current").stdout.strip(), "main")
 
     def test_all_stale_deletes_only_a_uniquely_verified_branch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -651,9 +608,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(
-                f"Would delete branch: feat/old @ {source_sha}", result.stdout
-            )
+            self.assertIn(f"Would delete branch: feat/old @ {source_sha}", result.stdout)
             branches = run_git(repository, "branch", "--format=%(refname:short)").stdout
             self.assertIn("feat/old", branches.splitlines())
             self.assertIn("feat/3-cleanup", branches.splitlines())
@@ -675,9 +630,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             self.assertIn("Partial completion", result.stderr)
             self.assertIn("default branch updated", result.stderr)
             self.assertIn("source branch retained", result.stderr)
-            self.assertEqual(
-                run_git(repository, "branch", "--show-current").stdout.strip(), "main"
-            )
+            self.assertEqual(run_git(repository, "branch", "--show-current").stdout.strip(), "main")
             branches = run_git(repository, "branch", "--format=%(refname:short)").stdout
             self.assertIn("feat/3-cleanup", branches.splitlines())
             self.assertFalse((repository / ".pytest_cache").exists())

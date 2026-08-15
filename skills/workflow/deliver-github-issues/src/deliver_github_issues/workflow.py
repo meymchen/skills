@@ -877,7 +877,8 @@ class DeliveryRun:
                     if (
                         pull_request["isDraft"]
                         or pull_request["mergeStateStatus"] == "DIRTY"
-                        or pull_request["reviewDecision"] in {"CHANGES_REQUESTED", "REVIEW_REQUIRED"}
+                        or pull_request["reviewDecision"]
+                        in {"CHANGES_REQUESTED", "REVIEW_REQUIRED"}
                     ):
                         raise WorkflowError("PR still requires human action.", ACCEPTANCE)
                     run_command(

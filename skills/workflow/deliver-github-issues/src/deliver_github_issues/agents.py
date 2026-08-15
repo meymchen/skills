@@ -177,10 +177,10 @@ def invoke_agent_phase(
     else:
         skill_instruction = (
             "Do not invoke implementation skills during the acceptance audit. "
-            "Evidence values are machine-verified and must be exact: for kind \"file\", a "
+            'Evidence values are machine-verified and must be exact: for kind "file", a '
             "workspace-relative path with an optional :line suffix and nothing else (no code "
-            "snippets); for kind \"command\", one of the supplied successful localChecks "
-            "commands verbatim; for kind \"ci\", one of the supplied passing ciChecks links "
+            'snippets); for kind "command", one of the supplied successful localChecks '
+            'commands verbatim; for kind "ci", one of the supplied passing ciChecks links '
             "verbatim. "
         )
     prompt = (
@@ -219,16 +219,13 @@ def invoke_agent_phase(
             if phase == "review"
             else []
         )
-        skills_root = (
-            Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
-        )
+        skills_root = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
         for name in dict.fromkeys(phase_skill_names):
             skill_path = skills_root / name / "SKILL.md"
             prompt += (
                 f"\n\nThe {name} skill cannot be invoked through the Skill tool in this "
                 "headless session; its full text follows — follow it exactly, and still "
-                f'report "{name}" in usedSkills:\n'
-                + skill_path.read_text(encoding="utf-8")
+                f'report "{name}" in usedSkills:\n' + skill_path.read_text(encoding="utf-8")
             )
     prompt_path.write_text(prompt, encoding="utf-8", newline="\n")
     if provider == "codex":
@@ -414,9 +411,7 @@ def invoke_agent_phase(
             except ContractError as error:
                 extraction_error = error
         if structured is None:
-            raise extraction_error or ContractError(
-                f"kimi {phase} produced no structured result."
-            )
+            raise extraction_error or ContractError(f"kimi {phase} produced no structured result.")
         result_path.write_text(
             json.dumps(structured, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )

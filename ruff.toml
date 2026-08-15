@@ -1,0 +1,10 @@
+# Shared Ruff policy for Python code that has no closer configuration file,
+# such as the PEP 723 standalone scripts. The deliver-github-issues project
+# keeps identical settings in its own pyproject.toml so vendored copies stay
+# self-contained; keep the two in sync.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

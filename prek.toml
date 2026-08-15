@@ -1,0 +1,74 @@
+# See https://prek.j178.dev for more information.
+#
+# Best practices applied in this config:
+# - Native prek.toml format, so prek-only features such as `repo = "builtin"`
+#   work and hygiene checks need no clone or environment setup.
+# - Generic hygiene hooks use prek's Rust-native builtins (offline, instant).
+# - Python checks mirror CI exactly: the deliver-github-issues project runs its
+#   locked `ruff format --check` / `ruff check` through `uv run --locked`, and
+#   standalone scripts use a pinned `uvx ruff` with the shared root ruff.toml
+#   policy.
+# - Markdown uses the repo's .markdownlint-cli2.jsonc policy with a pinned
+#   markdownlint-cli2 version in a prek-managed Node environment.
+minimum_prek_version = "0.4.0"
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  # Preserve two-space hard line breaks in Markdown, matching .editorconfig.
+  { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md,markdown"] },
+  { id = "end-of-file-fixer" },
+  { id = "check-case-conflict" },
+  { id = "check-illegal-windows-names" },
+  { id = "check-merge-conflict" },
+  { id = "check-added-large-files" },
+  { id = "check-json" },
+  { id = "check-toml" },
+  { id = "check-yaml" },
+  { id = "detect-private-key" },
+]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff-format-project"
+name = "ruff format (deliver-github-issues)"
+language = "system"
+entry = "uv run --project skills/workflow/deliver-github-issues --locked ruff format --check skills/workflow/deliver-github-issues"
+files = "^skills/workflow/deliver-github-issues/"
+types_or = ["python", "toml"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "ruff-check-project"
+name = "ruff check (deliver-github-issues)"
+language = "system"
+entry = "uv run --project skills/workflow/deliver-github-issues --locked ruff check skills/workflow/deliver-github-issues"
+files = "^skills/workflow/deliver-github-issues/"
+types_or = ["python", "toml"]
+pass_filenames = false
+
+[[repos.hooks]]
+id = "ruff-format-scripts"
+name = "ruff format (standalone scripts)"
+language = "system"
+entry = "uvx ruff@0.16.2 format --check"
+files = "^skills/workflow/cleanup-merged-branch/"
+types = ["python"]
+
+[[repos.hooks]]
+id = "ruff-check-scripts"
+name = "ruff check (standalone scripts)"
+language = "system"
+entry = "uvx ruff@0.16.2 check"
+files = "^skills/workflow/cleanup-merged-branch/"
+types = ["python"]
+
+[[repos.hooks]]
+id = "markdownlint"
+name = "markdownlint-cli2"
+language = "node"
+additional_dependencies = ["markdownlint-cli2@0.23.2"]
+entry = "markdownlint-cli2"
+types = ["markdown"]

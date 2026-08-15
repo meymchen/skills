@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import urlparse
 
-
 MAX_FILES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 ROOT_CACHE_NAMES = (
@@ -30,9 +29,7 @@ ROOT_CACHE_NAMES = (
     "htmlcov",
 )
 ROOT_CACHE_DIRECTORY_NAMES = set(ROOT_CACHE_NAMES)
-PR_FIELDS = (
-    "number,state,headRefName,headRefOid,baseRefName,mergeCommit,isCrossRepository,url"
-)
+PR_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergeCommit,isCrossRepository,url"
 SKIP_TREES = {".git", ".venv", "node_modules", ".agent-runs", ".scratch"}
 
 
@@ -180,9 +177,7 @@ def parse_remote_identity(url: str) -> tuple[str, str]:
         path = parsed.path.lstrip("/")
     repository = path.removesuffix(".git").strip("/")
     if not host or repository.count("/") != 1:
-        raise SafetyError(
-            f"Remote URL cannot be mapped to one GitHub repository: {url}"
-        )
+        raise SafetyError(f"Remote URL cannot be mapped to one GitHub repository: {url}")
     return host.lower(), repository
 
 
@@ -239,9 +234,7 @@ def load_repository_info(root: Path, requested_remote: str | None) -> Repository
         configured = git(
             root, "config", "--get", f"branch.{branch}.remote", check=False
         ).stdout.strip()
-        preferred = [
-            candidate for candidate in candidates if candidate[0] == configured
-        ]
+        preferred = [candidate for candidate in candidates if candidate[0] == configured]
         if len(preferred) == 1:
             candidates = preferred
     if len(candidates) != 1:
@@ -250,17 +243,13 @@ def load_repository_info(root: Path, requested_remote: str | None) -> Repository
             f"Expected one remote{qualifier} matching {name_with_owner}; found {len(candidates)}."
         )
     remote, host = candidates[0]
-    auth = run(
-        [*gh_prefix(), "auth", "status", "--hostname", host], cwd=root, check=False
-    )
+    auth = run([*gh_prefix(), "auth", "status", "--hostname", host], cwd=root, check=False)
     if auth.returncode != 0:
         raise SafetyError(f"gh is not authenticated for {host}.")
     return RepositoryInfo(root, name_with_owner, default_branch, remote, host)
 
 
-def load_pull_request(
-    repository: RepositoryInfo, number: int | None
-) -> PullRequestInfo:
+def load_pull_request(repository: RepositoryInfo, number: int | None) -> PullRequestInfo:
     command = ["pr", "view"]
     if number is not None:
         command.append(str(number))
@@ -276,9 +265,7 @@ def load_pull_request(
     merge = payload.get("mergeCommit") or {}
     merge_oid = str(merge.get("oid", ""))
     if not all((source_branch, source_oid, base_branch, merge_oid)):
-        raise SafetyError(
-            "The pull request is missing branch or commit identity evidence."
-        )
+        raise SafetyError("The pull request is missing branch or commit identity evidence.")
     if base_branch != repository.default_branch:
         raise SafetyError(
             f"PR base {base_branch!r} is not default branch {repository.default_branch!r}."
@@ -314,20 +301,15 @@ def verify_source_identity(
         raise SafetyError("Use --pr NUMBER when starting from the default branch.")
     if starting_branch not in {repository.default_branch, pull_request.source_branch}:
         raise SafetyError(
-            f"Current branch {starting_branch!r} is not PR source "
-            f"{pull_request.source_branch!r}."
+            f"Current branch {starting_branch!r} is not PR source {pull_request.source_branch!r}."
         )
     oid = local_branch_oid(repository.root, pull_request.source_branch)
     if oid is None:
         if not explicit_pr:
-            raise SafetyError(
-                "The local source branch is missing; specify --pr to rerun."
-            )
+            raise SafetyError("The local source branch is missing; specify --pr to rerun.")
         return None
     if oid != pull_request.source_oid:
-        raise SafetyError(
-            f"Local source tip {oid} differs from PR head {pull_request.source_oid}."
-        )
+        raise SafetyError(f"Local source tip {oid} differs from PR head {pull_request.source_oid}.")
     return oid
 
 
@@ -343,16 +325,12 @@ def parse_worktrees(root: Path) -> dict[str, Path]:
     return branches
 
 
-def verify_worktree_ownership(
-    repository: RepositoryInfo, pull_request: PullRequestInfo
-) -> None:
+def verify_worktree_ownership(repository: RepositoryInfo, pull_request: PullRequestInfo) -> None:
     worktrees = parse_worktrees(repository.root)
     for branch in (repository.default_branch, pull_request.source_branch):
         owner = worktrees.get(branch)
         if owner is not None and owner != repository.root:
-            raise SafetyError(
-                f"Branch {branch!r} is checked out in another worktree: {owner}"
-            )
+            raise SafetyError(f"Branch {branch!r} is checked out in another worktree: {owner}")
 
 
 def is_link(path: Path) -> bool:
@@ -380,9 +358,7 @@ def candidate_cache_paths(root: Path) -> list[Path]:
     return sorted({path for path in candidates if path.exists()}, key=str)
 
 
-def validate_cache_target(
-    root: Path, target: Path
-) -> tuple[CacheTarget | None, str | None]:
+def validate_cache_target(root: Path, target: Path) -> tuple[CacheTarget | None, str | None]:
     try:
         relative = target.relative_to(root)
         resolved = target.resolve(strict=True)
@@ -441,9 +417,7 @@ def build_cache_plan(root: Path) -> tuple[list[CacheTarget], list[tuple[Path, st
     file_count = sum(target.file_count for target in safe)
     byte_count = sum(target.byte_count for target in safe)
     if file_count > MAX_FILES or byte_count > MAX_BYTES:
-        raise SafetyError(
-            f"Cache plan exceeds hard limit: {file_count} files, {byte_count} bytes."
-        )
+        raise SafetyError(f"Cache plan exceeds hard limit: {file_count} files, {byte_count} bytes.")
     return safe, skipped
 
 
@@ -452,9 +426,7 @@ def delete_cache_plan(targets: list[CacheTarget], progress: Progress) -> None:
         refreshed, reason = validate_cache_target(repository_root(), target.path)
         if refreshed != target:
             detail = reason or "contents changed"
-            raise SafetyError(
-                f"Cache target changed before deletion: {target.path} ({detail})"
-            )
+            raise SafetyError(f"Cache target changed before deletion: {target.path} ({detail})")
         if target.path.is_dir():
             shutil.rmtree(target.path)
         else:
@@ -465,10 +437,7 @@ def delete_cache_plan(targets: list[CacheTarget], progress: Progress) -> None:
 
 def verify_default_can_update(repository: RepositoryInfo) -> None:
     remote_ref = f"refs/remotes/{repository.remote}/{repository.default_branch}"
-    if (
-        git(repository.root, "show-ref", "--verify", remote_ref, check=False).returncode
-        != 0
-    ):
+    if git(repository.root, "show-ref", "--verify", remote_ref, check=False).returncode != 0:
         raise SafetyError(f"Remote default branch ref is missing: {remote_ref}")
     local_oid = local_branch_oid(repository.root, repository.default_branch)
     if local_oid is None:
@@ -507,9 +476,7 @@ def update_default_branch(repository: RepositoryInfo, progress: Progress) -> Non
     progress.default_updated = True
 
 
-def verify_merge_present(
-    repository: RepositoryInfo, pull_request: PullRequestInfo
-) -> None:
+def verify_merge_present(repository: RepositoryInfo, pull_request: PullRequestInfo) -> None:
     result = git(
         repository.root,
         "merge-base",
@@ -539,9 +506,7 @@ def delete_local_branch(
     progress.deleted_branches.append((pull_request.source_branch, oid))
 
 
-def stale_branch_candidates(
-    repository: RepositoryInfo, excluded_source_branch: str
-) -> list[str]:
+def stale_branch_candidates(repository: RepositoryInfo, excluded_source_branch: str) -> list[str]:
     worktrees = parse_worktrees(repository.root)
     result = git(
         repository.root,
@@ -552,10 +517,7 @@ def stale_branch_candidates(
     candidates: list[str] = []
     for line in result.stdout.splitlines():
         branch, _, upstream = line.partition("\x00")
-        if (
-            branch in {excluded_source_branch, repository.default_branch}
-            or branch in worktrees
-        ):
+        if branch in {excluded_source_branch, repository.default_branch} or branch in worktrees:
             continue
         if branch.startswith(("release/", "hotfix/")) or not upstream:
             continue
@@ -616,9 +578,7 @@ def clean_stale_branches(
             and not item.get("isCrossRepository")
         ]
         if len(matches) != 1:
-            skipped.append(
-                (branch, f"expected one matching merged PR; found {len(matches)}")
-            )
+            skipped.append((branch, f"expected one matching merged PR; found {len(matches)}"))
             continue
         merge_oid = str((matches[0].get("mergeCommit") or {}).get("oid", ""))
         if (
@@ -651,9 +611,7 @@ def print_summary(
     dry_run: bool,
 ) -> None:
     prefix = "Dry run" if dry_run else "Cleanup complete"
-    default_oid = (
-        local_branch_oid(repository.root, repository.default_branch) or "not-local"
-    )
+    default_oid = local_branch_oid(repository.root, repository.default_branch) or "not-local"
     print(f"{prefix}: PR #{pull_request.number} ({pull_request.url})")
     print(f"Default branch: {repository.default_branch} @ {default_oid}")
     print(f"Caches: {progress.cache_files} files, {progress.cache_bytes} bytes")
@@ -665,10 +623,7 @@ def print_summary(
     if not progress.deleted_branches:
         print(f"Source branch already absent: {pull_request.source_branch}")
     if skipped_caches or stale_skipped:
-        print(
-            f"Skipped: {len(skipped_caches)} cache targets, "
-            f"{len(stale_skipped)} stale branches"
-        )
+        print(f"Skipped: {len(skipped_caches)} cache targets, {len(stale_skipped)} stale branches")
         for path, reason in skipped_caches:
             print(f"  {path}: {reason}")
         for branch, reason in stale_skipped:
@@ -700,9 +655,7 @@ def execute(args: argparse.Namespace) -> int:
     repository = load_repository_info(root, args.remote)
     pull_request = load_pull_request(repository, args.pr)
     start = current_branch(root)
-    source_oid = verify_source_identity(
-        repository, pull_request, start, args.pr is not None
-    )
+    source_oid = verify_source_identity(repository, pull_request, start, args.pr is not None)
     verify_worktree_ownership(repository, pull_request)
     if remote_branch_exists(repository, pull_request.source_branch):
         raise SafetyError("The remote source branch still exists.")
@@ -755,9 +708,7 @@ def execute(args: argparse.Namespace) -> int:
         if refreshed != pull_request or remote_branch_exists(
             repository, pull_request.source_branch
         ):
-            raise SafetyError(
-                "Remote pull request or branch state changed before deletion."
-            )
+            raise SafetyError("Remote pull request or branch state changed before deletion.")
         verify_worktree_ownership(repository, pull_request)
         delete_local_branch(repository, pull_request, progress)
         stale_skipped = (
@@ -766,9 +717,7 @@ def execute(args: argparse.Namespace) -> int:
             else []
         )
     except CleanupError as error:
-        raise type(error)(
-            f"{error}\n{partial_completion(progress, pull_request)}"
-        ) from error
+        raise type(error)(f"{error}\n{partial_completion(progress, pull_request)}") from error
     except KeyboardInterrupt as error:
         raise InterruptedCleanup(partial_completion(progress, pull_request)) from error
     print_summary(
