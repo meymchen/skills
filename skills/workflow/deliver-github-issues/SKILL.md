@@ -26,9 +26,10 @@ Local repository configuration defaults to
 `assets/repository.example.json` there and replace its local and CI checks. Use
 `--config <path>` when the repository intentionally shares a tracked policy.
 Agent routing is selected per new run. The primary defaults to Codex CLI and
-accepts `codex|claude|opencode|kimi`; metadata defaults to OpenCode and accepts
-the same four values. The roles are independent, so all 16 combinations are
-valid. Resume always reuses the selection stored in run state. Claude primary
+accepts `codex|claude|opencode`; metadata defaults to OpenCode and accepts
+the same three values. The roles are independent, so all nine combinations are
+valid. An unsupported selection emits a warning and falls back to Codex for
+primary or OpenCode for metadata. Resume always reuses the selection stored in run state. Claude primary
 requires its fail-closed Bash sandbox, available on macOS, Linux, or WSL2;
 native Windows is rejected rather than running unsandboxed.
 
@@ -57,11 +58,9 @@ CI-URL evidence; use `human_required` for judgment; use `unsatisfied` for an
 implementation gap. Return only the object required by `audit.schema.json`.
 
 Metadata providers run in a temporary directory with project configuration,
-plugins, skills, and delegation disabled. Claude, OpenCode, and Kimi receive an
+plugins, skills, and delegation disabled. Claude and OpenCode receive an
 empty or deny-all tool set. Codex runs read-only with user configuration, rules,
 and MCP servers disabled because its CLI cannot unregister built-in tools. Every
 provider's JSON event stream must contain no tool event and end in one
-schema-valid metadata object. Kimi's isolated home copies only `config.toml` and
-credentials from the configured Kimi home; project instructions, MCP servers,
-plugins, and skills are not copied. There is no fallback provider, automatic
+schema-valid metadata object. There is no fallback provider, automatic
 output repair, or per-run model selection.

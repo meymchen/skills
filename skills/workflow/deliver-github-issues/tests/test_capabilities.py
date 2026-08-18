@@ -23,7 +23,7 @@ def _install_skills(home: Path) -> None:
     (home / ".skill-lock.json").write_text(json.dumps(locked), encoding="utf-8")
 
 
-@pytest.mark.parametrize("provider", ("codex", "claude", "opencode", "kimi"))
+@pytest.mark.parametrize("provider", ("codex", "claude", "opencode"))
 def test_capability_validation_supports_every_provider_in_both_roles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
 ) -> None:
@@ -36,7 +36,6 @@ def test_capability_validation_supports_every_provider_in_both_roles(
         "codex": "codex-cli 0.147.0",
         "claude": "2.1.227",
         "opencode": "1.18.18",
-        "kimi": "0.35.0",
     }
     calls: list[tuple[str, list[str]]] = []
 
@@ -128,34 +127,6 @@ def test_capability_validation_rejects_old_metadata_cli(
         )
 
 
-def test_kimi_capability_requires_custom_agent_options(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    agents_home = tmp_path / ".agents"
-    _install_skills(agents_home)
-    monkeypatch.setenv("DGI_AGENTS_HOME", str(agents_home))
-    monkeypatch.setattr(capabilities.shutil, "which", lambda command: command)
-
-    def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
-        if arguments == ["--version"]:
-            output = "codex-cli 0.147.0" if command == "codex" else "0.35.0"
-        elif arguments == ["--help"]:
-            output = "--agent-file --skills-dir --output-format"
-        elif arguments == ["doctor"]:
-            output = "ok"
-        else:
-            output = "authenticated"
-        return CommandResult(output, "", 0, command)
-
-    monkeypatch.setattr(capabilities, "run_command", fake_run)
-
-    report = capabilities.validate_capabilities(
-        {"primary": "codex", "metadata": "kimi"}, tmp_path, tmp_path / "probe.log"
-    )
-
-    assert report["kimi"] == "0.35.0"
-
-
 def test_formal_capability_validation_runs_primary_and_metadata_probes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -201,7 +172,7 @@ def test_formal_capability_validation_runs_primary_and_metadata_probes(
     assert primary_probed
 
 
-@pytest.mark.parametrize("primary", ("opencode", "kimi"))
+@pytest.mark.parametrize("primary", ("opencode",))
 def test_dynamic_primary_probe_uses_the_selected_provider_protocol(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, primary: str
 ) -> None:
@@ -214,7 +185,7 @@ def test_dynamic_primary_probe_uses_the_selected_provider_protocol(
     def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
         nonlocal dynamic_arguments
         if arguments == ["--version"]:
-            output = "0.35.0" if command == "kimi" else "1.18.18"
+            output = "1.18.18"
         elif arguments[:2] in (["debug", "config"], ["debug", "agent"]):
             output = json.dumps({"tools": {"*": False}, "permission": {"*": "deny"}})
         elif arguments == ["auth", "list"]:
@@ -299,4 +270,3 @@ def test_dynamic_metadata_probe_uses_the_selected_provider_protocol(
     )
 
     assert metadata in commands
-    assert "kimi" not in commands

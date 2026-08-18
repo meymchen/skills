@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -183,17 +182,6 @@ def _opencode_environment(config_home: Path | None = None) -> dict[str, str]:
     return environment
 
 
-def _prepare_kimi_home(target: Path) -> None:
-    source = Path(os.environ.get("KIMI_CODE_HOME", Path.home() / ".kimi-code"))
-    target.mkdir(parents=True, exist_ok=True)
-    config = source / "config.toml"
-    if config.is_file():
-        shutil.copy2(config, target / config.name)
-    credentials = source / "credentials"
-    if credentials.is_dir():
-        shutil.copytree(credentials, target / credentials.name)
-
-
 def _codex_metadata_arguments(temporary: Path) -> list[str]:
     return [
         "exec",
@@ -298,52 +286,6 @@ def _run_opencode(prompt: str, temporary: Path, timeout_seconds: int, log_path: 
     return result.output
 
 
-def _run_kimi(prompt: str, temporary: Path, timeout_seconds: int, log_path: Path) -> str:
-    agent_path = temporary / "metadata-agent.md"
-    agent_path.write_text(
-        "---\nname: metadata\ndescription: Generate verified delivery metadata.\n"
-        "tools: []\nsubagents: []\n---\n"
-        "Return only the requested metadata JSON. Do not use tools or delegate.\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    empty_skills = temporary / "empty-skills"
-    empty_skills.mkdir()
-    kimi_home = temporary / "kimi-home"
-    _prepare_kimi_home(kimi_home)
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "KIMI_CODE_HOME": str(kimi_home),
-            "KIMI_CODE_EXPERIMENTAL_FLAG": "1",
-            "KIMI_DISABLE_TELEMETRY": "1",
-            "KIMI_CODE_NO_AUTO_UPDATE": "1",
-        }
-    )
-    result = run_command(
-        "kimi",
-        [
-            "-p",
-            prompt,
-            "--agent-file",
-            str(agent_path),
-            "--skills-dir",
-            str(empty_skills),
-            "--output-format",
-            "stream-json",
-        ],
-        cwd=temporary,
-        env=environment,
-        log_path=log_path,
-        allow_failure=True,
-        timeout_seconds=timeout_seconds,
-        transient_retries=1,
-    )
-    if result.exit_code:
-        raise CommandError(f"kimi metadata agent failed ({result.exit_code}).")
-    return result.output
-
-
 def delivery_metadata(
     policy: dict[str, Any], state: dict[str, Any], run_dir: Path
 ) -> dict[str, Any]:
@@ -368,8 +310,6 @@ def delivery_metadata(
                 output = _run_claude(prompt, temporary, timeout_seconds, log_path)
             elif provider == "opencode":
                 output = _run_opencode(prompt, temporary, timeout_seconds, log_path)
-            elif provider == "kimi":
-                output = _run_kimi(prompt, temporary, timeout_seconds, log_path)
             else:
                 raise ContractError(f"Unsupported metadata provider: {provider}")
             try:

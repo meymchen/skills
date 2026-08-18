@@ -39,19 +39,6 @@ def _implementation_result() -> dict[str, object]:
     }
 
 
-def _install_skill_fixtures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...]
-) -> None:
-    agents_home = tmp_path / ".agents"
-    for name in names:
-        skill_dir = agents_home / "skills" / name
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            f"---\nname: {name}\n---\n{name} body\n", encoding="utf-8"
-        )
-    monkeypatch.setenv("DGI_AGENTS_HOME", str(agents_home))
-
-
 @pytest.mark.parametrize(
     ("provider", "prefix", "skill_marker"),
     [
@@ -146,52 +133,6 @@ def test_opencode_primary_uses_shared_skills_and_validates_event_output(
     assert inline["permission"]["bash"]["gh *"] == "deny"
 
 
-def test_kimi_primary_uses_shared_skills_and_validates_event_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    captured: dict[str, object] = {}
-    _install_skill_fixtures(tmp_path, monkeypatch, ("implement", "tdd"))
-
-    def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
-        captured.update(command=command, arguments=arguments, **kwargs)
-        output = json.dumps(
-            {
-                "type": "message",
-                "role": "assistant",
-                "content": json.dumps(_implementation_result()),
-            }
-        )
-        return CommandResult(output, "", 0, "kimi -p")
-
-    monkeypatch.setattr(agents, "run_command", fake_run)
-
-    result = agents.invoke_agent_phase(
-        "implement",
-        _state("kimi")["policy"],
-        _state("kimi"),
-        {"number": 123, "skills": ["implement", "tdd"], "instruction": ""},
-        {"number": 123, "title": "Ship it"},
-        tmp_path,
-        tmp_path,
-    )
-
-    assert result["status"] == "completed"
-    assert captured["command"] == "kimi"
-    arguments = captured["arguments"]
-    assert arguments[:1] == ["-p"]
-    # Print mode implies auto permission; --auto conflicts with -p since kimi 0.36.0.
-    assert "--auto" not in arguments
-    assert "--output-format" in arguments and "stream-json" in arguments
-    assert Path(arguments[arguments.index("--skills-dir") + 1]) == tmp_path / ".agents" / "skills"
-    assert str(arguments[1]).startswith(
-        "Use the implement skill for https://github.com/acme/widgets/issues/123"
-    )
-    # disable-model-invocation skills are inlined so a headless worker can follow them.
-    assert "implement body" in str(arguments[1])
-    assert "tdd body" in str(arguments[1])
-    assert "--model" not in arguments
-
-
 def test_opencode_review_denies_general_shell_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -230,41 +171,6 @@ def test_opencode_review_denies_general_shell_commands(
     assert inline["permission"]["bash"]["git diff *"] == "allow"
 
 
-def test_kimi_review_selects_the_read_only_plan_agent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    captured: dict[str, object] = {}
-    _install_skill_fixtures(tmp_path, monkeypatch, ("code-review",))
-
-    def fake_run(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
-        captured["arguments"] = arguments
-        value = {
-            "status": "passed",
-            "summary": "reviewed",
-            "usedSkills": ["code-review"],
-            "findings": [],
-        }
-        return CommandResult(
-            json.dumps({"type": "message", "content": json.dumps(value)}), "", 0, command
-        )
-
-    monkeypatch.setattr(agents, "run_command", fake_run)
-
-    agents.invoke_agent_phase(
-        "review",
-        _state("kimi")["policy"],
-        _state("kimi"),
-        {"number": 123, "skills": ["implement", "tdd"], "instruction": ""},
-        {"number": 123, "title": "Ship it"},
-        tmp_path,
-        tmp_path,
-    )
-
-    arguments = captured["arguments"]
-    assert "--plan" not in arguments
-    assert arguments[arguments.index("--agent") + 1] == "plan"
-
-
 def test_review_invokes_only_code_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -300,13 +206,12 @@ def test_review_invokes_only_code_review(tmp_path: Path, monkeypatch: pytest.Mon
     assert "$tdd" not in prompt
 
 
-@pytest.mark.parametrize("primary", ("codex", "claude", "opencode", "kimi"))
-@pytest.mark.parametrize("metadata", ("codex", "claude", "opencode", "kimi"))
+@pytest.mark.parametrize("primary", ("codex", "claude", "opencode"))
+@pytest.mark.parametrize("metadata", ("codex", "claude", "opencode"))
 def test_every_primary_and_metadata_route_uses_the_selected_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, primary: str, metadata: str
 ) -> None:
     commands: list[str] = []
-    _install_skill_fixtures(tmp_path, monkeypatch, ("implement", "tdd", "code-review"))
 
     def fake_primary(command: str, arguments: list[str], **kwargs: object) -> CommandResult:
         commands.append(f"primary:{command}")

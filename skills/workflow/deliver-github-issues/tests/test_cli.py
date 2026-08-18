@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fakes import install_python_tool, isolated_agent_environment
 
+from deliver_github_issues import cli
 from deliver_github_issues.cli import build_parser
 
 PROJECT = Path(__file__).parents[1]
@@ -55,14 +56,6 @@ elif args[:2] == ['auth', 'list']:
     print('openai')
 """,
     )
-    install_python_tool(
-        directory,
-        "kimi",
-        """import sys
-args = sys.argv[1:]
-print('0.35.0' if args == ['--version'] else '--agent-file --skills-dir --output-format')
-""",
-    )
 
 
 def test_cli_requires_exactly_one_operation() -> None:
@@ -97,18 +90,50 @@ def test_resume_rejects_new_config_preview_and_agent_selection() -> None:
     assert "agent selection cannot be combined with --resume" in rerouted.stderr
 
 
-def test_agent_options_use_strict_defaults_and_enums() -> None:
+def test_agent_options_use_defaults_and_supported_values() -> None:
     defaults = build_parser().parse_args(["--issues", "#14"])
 
     assert defaults.primary_agent == "codex"
     assert defaults.metadata_agent == "opencode"
-    for provider in ("codex", "claude", "opencode", "kimi"):
+    for provider in ("codex", "claude", "opencode"):
         selected = build_parser().parse_args(
             ["--issues", "#14", "--primary-agent", provider, "--metadata-agent", provider]
         )
         assert selected.primary_agent == provider
         assert selected.metadata_agent == provider
-    assert run_cli("--issues", "#14", "--metadata-agent", "copilot").returncode == 10
+
+
+def test_unsupported_agents_warn_and_fall_back_to_role_defaults(monkeypatch, capsys) -> None:
+    captured_agents: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "preview_issues",
+        lambda issues, config, primary, metadata: (
+            captured_agents.extend([primary, metadata]) or "preview"
+        ),
+    )
+
+    result = cli.run(
+        [
+            "--issues",
+            "#14",
+            "--primary-agent",
+            "other-primary",
+            "--metadata-agent",
+            "other-metadata",
+            "--what-if",
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert result == 0
+    assert captured_agents == ["codex", "opencode"]
+    assert output.out == "preview\n"
+    assert "warning: unsupported primary agent 'other-primary'; falling back to codex" in output.err
+    assert (
+        "warning: unsupported metadata agent 'other-metadata'; falling back to opencode"
+        in output.err
+    )
 
 
 def test_what_if_preserves_queue_order_and_creates_no_state(tmp_path: Path) -> None:
@@ -233,7 +258,7 @@ raise SystemExit(2)
             "--primary-agent",
             "claude",
             "--metadata-agent",
-            "kimi",
+            "opencode",
             "--what-if",
         ],
         cwd=tmp_path,
@@ -247,7 +272,7 @@ raise SystemExit(2)
     assert result.stdout.index("#15") < result.stdout.index("#14") < result.stdout.index("#16")
     assert "skills=implement" in result.stdout
     assert "primary=claude" in result.stdout
-    assert "metadata=kimi" in result.stdout
+    assert "metadata=opencode" in result.stdout
 
     discovered = subprocess.run(
         [

@@ -209,24 +209,6 @@ def invoke_agent_phase(
             "can inspect the full diff. Return control to the workflow after the structured "
             "handoff.\nInput:\n",
         )
-    if provider == "kimi":
-        # kimi hides disable-model-invocation skills (implement) from the model,
-        # so a headless worker cannot invoke them; inline the skill text instead.
-        phase_skill_names = (
-            queue_item["skills"]
-            if phase == "implement"
-            else ["code-review"]
-            if phase == "review"
-            else []
-        )
-        skills_root = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
-        for name in dict.fromkeys(phase_skill_names):
-            skill_path = skills_root / name / "SKILL.md"
-            prompt += (
-                f"\n\nThe {name} skill cannot be invoked through the Skill tool in this "
-                "headless session; its full text follows — follow it exactly, and still "
-                f'report "{name}" in usedSkills:\n' + skill_path.read_text(encoding="utf-8")
-            )
     prompt_path.write_text(prompt, encoding="utf-8", newline="\n")
     if provider == "codex":
         sandbox = "read-only" if phase in {"audit", "review"} else "workspace-write"
@@ -357,61 +339,6 @@ def invoke_agent_phase(
         if result.exit_code:
             raise CommandError(f"OpenCode {phase} failed with exit code {result.exit_code}.")
         structured = _structured_from_events(result.output, provider, phase)
-        result_path.write_text(
-            json.dumps(structured, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-    elif provider == "kimi":
-        skills_dir = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
-        # Print mode already runs with auto permission; --auto conflicts with -p.
-        mode = ["--agent", "plan"] if phase in {"review", "audit"} else []
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "KIMI_DISABLE_TELEMETRY": "1",
-                "KIMI_CODE_NO_AUTO_UPDATE": "1",
-            }
-        )
-        structured: dict[str, Any] | None = None
-        extraction_error: ContractError | None = None
-        for attempt in range(2):
-            if attempt:
-                prompt += (
-                    "\n\nREMINDER: reply with exactly one raw JSON object conforming to the "
-                    "requested schema — no prose, no markdown code fence, nothing before or "
-                    "after it."
-                )
-            arguments = [
-                "-p",
-                prompt,
-                *mode,
-                "--skills-dir",
-                str(skills_dir),
-                "--output-format",
-                "stream-json",
-            ]
-            result = run_command(
-                "kimi",
-                arguments,
-                cwd=root,
-                env=environment,
-                allow_failure=True,
-                timeout_seconds=policy["primaryTimeoutMinutes"] * 60,
-                transient_retries=1,
-            )
-            events_path.write_text(
-                result.output + (("\n" + result.stderr) if result.stderr else ""),
-                encoding="utf-8",
-                newline="\n",
-            )
-            if result.exit_code:
-                raise CommandError(f"Kimi {phase} failed with exit code {result.exit_code}.")
-            try:
-                structured = _structured_from_events(result.output, provider, phase)
-                break
-            except ContractError as error:
-                extraction_error = error
-        if structured is None:
-            raise extraction_error or ContractError(f"kimi {phase} produced no structured result.")
         result_path.write_text(
             json.dumps(structured, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )

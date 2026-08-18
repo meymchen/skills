@@ -14,14 +14,13 @@ from deliver_github_issues.metadata import (
     _codex_metadata_arguments,
     _has_tool_event,
     _opencode_environment,
-    _run_kimi,
     _run_opencode,
     _text_candidates,
 )
 
 _REQUIRED_SKILLS = ("implement", "tdd", "code-review")
 _VERSION = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
-_MINIMUM_METADATA_VERSIONS = {"opencode": (1, 18, 18), "kimi": (0, 29, 0)}
+_MINIMUM_METADATA_VERSIONS = {"opencode": (1, 18, 18)}
 _CAPABILITY_PROBE_TIMEOUT = 600
 
 
@@ -116,13 +115,6 @@ def _validate_opencode_deny_all(log_path: Path) -> None:
         raise CommandError("OpenCode effective metadata agent is not deny-all.")
 
 
-def _validate_kimi_agent_support(log_path: Path) -> None:
-    help_text = run_command("kimi", ["--help"], log_path=log_path).output
-    for option in ("--agent-file", "--skills-dir", "--output-format"):
-        if option not in help_text:
-            raise CommandError(f"Kimi Code CLI does not support required option {option}.")
-
-
 def _validate_help_options(
     provider: str, arguments: list[str], options: tuple[str, ...], log_path: Path
 ) -> None:
@@ -149,8 +141,6 @@ def _validate_metadata_support(provider: str, log_path: Path) -> None:
         )
     elif provider == "opencode":
         _validate_opencode_deny_all(log_path)
-    elif provider == "kimi":
-        _validate_kimi_agent_support(log_path)
     else:
         raise CommandError(f"Unsupported metadata provider: {provider}")
 
@@ -164,8 +154,6 @@ def _validate_auth(provider: str, log_path: Path) -> None:
         result = run_command("opencode", ["auth", "list"], log_path=log_path)
         if not result.output.strip():
             raise CommandError("OpenCode has no configured authentication provider.")
-    elif provider == "kimi":
-        run_command("kimi", ["doctor"], log_path=log_path)
     else:
         raise CommandError(f"Unsupported provider: {provider}")
 
@@ -226,18 +214,6 @@ def _dynamic_primary_probe(provider: str, root: Path, log_path: Path) -> None:
                 str(root),
                 f"Use the implement skill. {request}",
             ]
-        elif provider == "kimi":
-            skills_dir = Path(os.environ.get("DGI_AGENTS_HOME", Path.home() / ".agents")) / "skills"
-            arguments = [
-                "-p",
-                f"Use the implement skill. {request}",
-                "--agent",
-                "plan",
-                "--skills-dir",
-                str(skills_dir),
-                "--output-format",
-                "stream-json",
-            ]
         else:
             raise CommandError(f"Unsupported primary provider: {provider}")
         result = run_command(
@@ -292,8 +268,6 @@ def _dynamic_metadata_probe(provider: str, log_path: Path) -> None:
             ).output
         elif provider == "opencode":
             output = _run_opencode(prompt, temporary, _CAPABILITY_PROBE_TIMEOUT, log_path)
-        elif provider == "kimi":
-            output = _run_kimi(prompt, temporary, _CAPABILITY_PROBE_TIMEOUT, log_path)
         else:
             raise CommandError(f"Unsupported metadata provider: {provider}")
     for line in output.splitlines():

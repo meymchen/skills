@@ -18,7 +18,19 @@ from deliver_github_issues.workflow import (
 )
 
 PREFLIGHT_EXIT = 10
-AGENT_PROVIDERS = ("codex", "claude", "opencode", "kimi")
+AGENT_PROVIDERS = ("codex", "claude", "opencode")
+DEFAULT_PRIMARY_AGENT = "codex"
+DEFAULT_METADATA_AGENT = "opencode"
+
+
+def _agent_or_default(role: str, provider: str, default: str) -> str:
+    if provider in AGENT_PROVIDERS:
+        return provider
+    print(
+        f"warning: unsupported {role} agent {provider!r}; falling back to {default}",
+        file=sys.stderr,
+    )
+    return default
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     operations.add_argument("--clean-summaries", action="store_true")
     parser.add_argument("--instruction", default="")
     parser.add_argument("--config")
-    parser.add_argument("--primary-agent", choices=AGENT_PROVIDERS, default="codex")
-    parser.add_argument("--metadata-agent", choices=AGENT_PROVIDERS, default="opencode")
+    parser.add_argument("--primary-agent", default=DEFAULT_PRIMARY_AGENT)
+    parser.add_argument("--metadata-agent", default=DEFAULT_METADATA_AGENT)
     parser.add_argument("--keep-run-summary", action="store_true")
     parser.add_argument("--what-if", action="store_true")
     return parser
@@ -67,6 +79,8 @@ def run(arguments: Sequence[str] | None = None) -> int:
     if args.resume and "--keep-run-summary" in argument_list:
         print("--keep-run-summary cannot be combined with --resume", file=sys.stderr)
         return PREFLIGHT_EXIT
+    args.primary_agent = _agent_or_default("primary", args.primary_agent, DEFAULT_PRIMARY_AGENT)
+    args.metadata_agent = _agent_or_default("metadata", args.metadata_agent, DEFAULT_METADATA_AGENT)
     config = args.config or ".scratch/deliver-github-issues.json"
     try:
         if args.what_if and args.queue:

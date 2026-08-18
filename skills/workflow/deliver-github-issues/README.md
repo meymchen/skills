@@ -12,8 +12,7 @@ criteria, and squash-merges the exact tested commit.
 - Python 3.12 or newer
 - uv 0.12.0 or newer
 - Git and an authenticated GitHub CLI
-- at least the selected CLIs: Codex CLI, Claude Code, OpenCode 1.18.18+, or
-  Kimi Code CLI 0.29.0+
+- at least the selected CLIs: Codex CLI, Claude Code, or OpenCode 1.18.18+
 - `implement`, `tdd`, and `code-review` installed from `mattpocock/skills`
 
 ## Install locally
@@ -44,8 +43,10 @@ uv run --project <skill-dir> --locked deliver-github-issues --issues "#14, #15-1
 ```
 
 The defaults are `--primary-agent codex --metadata-agent opencode`. Each option
-accepts `codex`, `claude`, `opencode`, or `kimi`, independently, for 16 valid
-routes. The selection is fixed in run state and reused on resume.
+accepts `codex`, `claude`, or `opencode`, independently, for nine valid
+routes. Unsupported values emit a warning and fall back to `codex` for primary
+or `opencode` for metadata. The selection is fixed in run state and reused on
+resume.
 
 The [usage guide](../../../docs/workflow/deliver-github-issues.md) covers
 queue files, previews, recovery, acceptance gates, and exit codes.

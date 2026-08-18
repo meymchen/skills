@@ -52,8 +52,8 @@ def test_state_is_atomically_saved_and_loaded(tmp_path: Path) -> None:
     assert not (tmp_path / "state.json.tmp").exists()
 
 
-@pytest.mark.parametrize("primary", ("codex", "claude", "opencode", "kimi"))
-@pytest.mark.parametrize("metadata", ("codex", "claude", "opencode", "kimi"))
+@pytest.mark.parametrize("primary", ("codex", "claude", "opencode"))
+@pytest.mark.parametrize("metadata", ("codex", "claude", "opencode"))
 def test_state_preserves_every_agent_route(tmp_path: Path, primary: str, metadata: str) -> None:
     state = state_value()
     state["agents"] = {"primary": primary, "metadata": metadata, "versions": {}}
@@ -62,6 +62,15 @@ def test_state_preserves_every_agent_route(tmp_path: Path, primary: str, metadat
     save_state(state, path)
 
     assert load_state(path)["agents"] == state["agents"]
+
+
+@pytest.mark.parametrize("role", ("primary", "metadata"))
+def test_state_rejects_removed_kimi_provider(tmp_path: Path, role: str) -> None:
+    state = state_value()
+    state["agents"][role] = "kimi"
+
+    with pytest.raises(ContractError, match="is not one of"):
+        save_state(state, tmp_path / "state.json")
 
 
 def test_state_rejects_unknown_properties(tmp_path: Path) -> None:
