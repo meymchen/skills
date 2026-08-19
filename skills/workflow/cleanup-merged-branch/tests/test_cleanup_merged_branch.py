@@ -188,6 +188,9 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("disable-model-invocation: true", skill)
+        skill_body = skill.split("---", 2)[2]
+        self.assertNotIn("$cleanup-merged-branch", skill_body)
+        self.assertNotIn("/cleanup-merged-branch", skill_body)
         self.assertIn("allow_implicit_invocation: false", metadata)
         self.assertIn('# requires-python = ">=3.12"', script)
         self.assertIn("# dependencies = []", script)

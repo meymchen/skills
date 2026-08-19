@@ -6,9 +6,8 @@ disable-model-invocation: true
 
 # Cleanup Merged Branch
 
-Run this manual-only workflow only when the current user message explicitly invokes
-`$cleanup-merged-branch` or `/cleanup-merged-branch`. Otherwise, stop without running
-the script.
+Use the client loading this manual-only skill as the invocation boundary, then run
+the workflow. Clients may replace the user's command token with this content.
 
 1. Resolve this skill directory from the loaded `SKILL.md` path.
 2. From the target Git repository, map the user's explicit request to these optional
