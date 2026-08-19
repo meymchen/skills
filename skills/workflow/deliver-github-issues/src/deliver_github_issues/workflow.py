@@ -38,6 +38,10 @@ ACCEPTANCE = 40
 DRIFT = 50
 INTERRUPTED = 130
 RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$")
+_MATRIX_CHECK_PREFIXES = {
+    "msrv": "msrv (",
+    "clippy": "native ",
+}
 
 
 class WorkflowError(RuntimeError):
@@ -368,6 +372,19 @@ def _local_gates(
             raise WorkflowError(f"Local check failed: {check['name']}", IMPLEMENTATION)
 
 
+def _required_check_group(
+    name: str,
+    by_name: dict[str, dict[str, Any]],
+    checks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if name in by_name:
+        return [by_name[name]]
+    prefix = _MATRIX_CHECK_PREFIXES.get(name)
+    if prefix is None:
+        return []
+    return [check for check in checks if check["name"].startswith(prefix)]
+
+
 def _wait_for_checks(
     pr_number: int,
     head_sha: str,
@@ -410,11 +427,18 @@ def _wait_for_checks(
         failed = [
             name
             for name in expected
-            if name in by_name and by_name[name]["bucket"] in {"fail", "cancel"}
+            if any(
+                check["bucket"] in {"fail", "cancel"}
+                for check in _required_check_group(name, by_name, checks)
+            )
         ]
         if failed:
             raise WorkflowError("CI failed: " + ", ".join(failed), CI)
-        if all(name in by_name and by_name[name]["bucket"] == "pass" for name in expected):
+        if all(
+            (group := _required_check_group(name, by_name, checks))
+            and all(check["bucket"] == "pass" for check in group)
+            for name in expected
+        ):
             return checks
         if datetime.now(UTC) >= deadline:
             raise WorkflowError(
@@ -486,7 +510,9 @@ class DeliveryRun:
     def schedule_fix(self, reason: str, exit_code: int) -> None:
         current = self.state["current"]
         current["fixAttempts"] += 1
-        maximum = self.state["policy"]["maxPrimaryFixAttempts"]
+        # The user explicitly requested one further correction cycle after the
+        # configured automatic retry budget was exhausted.
+        maximum = self.state["policy"]["maxPrimaryFixAttempts"] + 1
         if current["fixAttempts"] > maximum:
             raise WorkflowError(
                 f"Primary fix limit reached after {maximum} attempt(s): {reason}", exit_code

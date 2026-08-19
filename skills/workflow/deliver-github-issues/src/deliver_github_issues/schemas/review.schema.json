@@ -6,7 +6,7 @@
   "properties": {
     "status": { "enum": ["passed", "changes_required"] },
     "summary": { "type": "string" },
-    "usedSkills": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "usedSkills": { "type": "array", "items": { "type": "string" } },
     "findings": { "type": "array", "items": { "type": "string" } }
   }
 }

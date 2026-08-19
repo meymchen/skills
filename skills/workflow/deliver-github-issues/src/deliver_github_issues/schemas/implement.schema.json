@@ -6,9 +6,9 @@
     "status": { "enum": ["completed", "blocked"] },
     "summary": { "type": "string" },
     "commitSha": { "type": ["string", "null"] },
-    "changedFiles": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "changedFiles": { "type": "array", "items": { "type": "string" } },
     "reviewSummary": { "type": "string" },
-    "usedSkills": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "usedSkills": { "type": "array", "items": { "type": "string" } },
     "tests": {
       "type": "array", "items": {
         "type": "object", "additionalProperties": false, "required": ["command", "exitCode"],
