@@ -35,8 +35,8 @@ repo = "local"
 id = "ruff-format-project"
 name = "ruff format (deliver-github-issues)"
 language = "system"
-entry = "uv run --project skills/workflow/deliver-github-issues --locked ruff format --check skills/workflow/deliver-github-issues"
-files = "^skills/workflow/deliver-github-issues/"
+entry = "uv run --project skills/productivity/deliver-github-issues --locked ruff format --check skills/productivity/deliver-github-issues"
+files = "^skills/productivity/deliver-github-issues/"
 types_or = ["python", "toml"]
 pass_filenames = false
 
@@ -44,8 +44,8 @@ pass_filenames = false
 id = "ruff-check-project"
 name = "ruff check (deliver-github-issues)"
 language = "system"
-entry = "uv run --project skills/workflow/deliver-github-issues --locked ruff check skills/workflow/deliver-github-issues"
-files = "^skills/workflow/deliver-github-issues/"
+entry = "uv run --project skills/productivity/deliver-github-issues --locked ruff check skills/productivity/deliver-github-issues"
+files = "^skills/productivity/deliver-github-issues/"
 types_or = ["python", "toml"]
 pass_filenames = false
 
@@ -54,7 +54,7 @@ id = "ruff-format-scripts"
 name = "ruff format (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.2 format --check"
-files = "^skills/workflow/cleanup-merged-branch/"
+files = "^skills/productivity/cleanup-merged-branch/"
 types = ["python"]
 
 [[repos.hooks]]
@@ -62,7 +62,7 @@ id = "ruff-check-scripts"
 name = "ruff check (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.2 check"
-files = "^skills/workflow/cleanup-merged-branch/"
+files = "^skills/productivity/cleanup-merged-branch/"
 types = ["python"]
 
 [[repos.hooks]]
