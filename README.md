@@ -4,10 +4,10 @@ Reusable agent skills, grouped by domain under [`skills/`](skills/).
 
 ## Skills
 
-- [`cleanup-merged-branch`](skills/productivity/cleanup-merged-branch/README.md) —
+- [`cleanup-merged-branch`](skills/routine/cleanup-merged-branch/README.md) —
   clean verified merged branches, reproducible caches, and stale local branches.
-- [`pr-body`](skills/productivity/pr-body/SKILL.md) — update the title and body of
-  one or more pull requests.
+- [`update-pr-body`](skills/development/update-pr-body/SKILL.md) — update the title
+  and body of one or more pull requests.
 
 ## Install
 

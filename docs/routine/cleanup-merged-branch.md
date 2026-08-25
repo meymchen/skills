@@ -4,7 +4,7 @@
 and deleted its remote source branch. It performs no GitHub writes and never deletes
 a remote branch.
 
-[Read the skill source](../../skills/productivity/cleanup-merged-branch/SKILL.md).
+[Read the skill source](../../skills/routine/cleanup-merged-branch/SKILL.md).
 
 ## Prerequisites
 

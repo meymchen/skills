@@ -1,5 +1,5 @@
 ---
-name: pr-body
+name: update-pr-body
 description: Update the title and body of one or more pull requests.
 ---
 

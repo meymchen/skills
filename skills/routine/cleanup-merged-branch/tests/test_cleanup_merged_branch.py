@@ -181,7 +181,7 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
         metadata = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         script = SCRIPT.read_text(encoding="utf-8")
         documentation = (
-            repository_root / "docs" / "workflow" / "cleanup-merged-branch.md"
+            repository_root / "docs" / "routine" / "cleanup-merged-branch.md"
         ).read_text(encoding="utf-8")
         workflow = (
             repository_root / ".github" / "workflows" / "cleanup-merged-branch-python.yml"

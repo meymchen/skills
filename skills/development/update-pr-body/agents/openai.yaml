@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update PR Body"
+  short_description: "Update the title and body of one or more pull requests"
+  default_prompt: "Use $update-pr-body to update the title and body of the relevant pull request."

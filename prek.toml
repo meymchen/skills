@@ -33,7 +33,7 @@ id = "ruff-format-scripts"
 name = "ruff format (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.2 format --check"
-files = "^skills/productivity/cleanup-merged-branch/"
+files = "^skills/routine/cleanup-merged-branch/"
 types = ["python"]
 
 [[repos.hooks]]
@@ -41,7 +41,7 @@ id = "ruff-check-scripts"
 name = "ruff check (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.2 check"
-files = "^skills/productivity/cleanup-merged-branch/"
+files = "^skills/routine/cleanup-merged-branch/"
 types = ["python"]
 
 [[repos.hooks]]
