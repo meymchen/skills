@@ -32,17 +32,6 @@ Invoke it explicitly as `$cleanup-merged-branch` in Codex or
 `/cleanup-merged-branch` in Claude Code and OpenCode. The invocation itself
 authorizes the verified local cleanup; normal execution has no confirmation prompt.
 
-After upgrading from a release where `deliver-github-issues` lived under the
-`engineering` domain, remove the old installation and add it again so one canonical
-copy remains:
-
-```console
-npx skills@latest remove deliver-github-issues --global --agent '*' --yes
-npx skills@latest add meymchen/skills --skill deliver-github-issues --agent codex --global
-npx skills@latest add meymchen/skills --skill deliver-github-issues --agent claude-code --global
-npx skills@latest add meymchen/skills --skill deliver-github-issues --agent opencode --global
-```
-
 ## Options
 
 The skill normally runs the script without arguments from the local PR source

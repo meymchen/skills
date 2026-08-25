@@ -1,7 +1,0 @@
-interface:
-  display_name: "Deliver GitHub Issues"
-  short_description: "Deliver queued GitHub issues safely and sequentially"
-  default_prompt: "Use $deliver-github-issues to deliver #14 or a range such as #15-18 in dependency order."
-
-policy:
-  allow_implicit_invocation: false

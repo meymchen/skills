@@ -4,10 +4,7 @@
 # - Native prek.toml format, so prek-only features such as `repo = "builtin"`
 #   work and hygiene checks need no clone or environment setup.
 # - Generic hygiene hooks use prek's Rust-native builtins (offline, instant).
-# - Python checks mirror CI exactly: the deliver-github-issues project runs its
-#   locked `ruff format --check` / `ruff check` through `uv run --locked`, and
-#   standalone scripts use a pinned `uvx ruff` with the shared root ruff.toml
-#   policy.
+# - Python checks use a pinned `uvx ruff` with the shared root ruff.toml policy.
 # - Markdown uses the repo's .markdownlint-cli2.jsonc policy with a pinned
 #   markdownlint-cli2 version in a prek-managed Node environment.
 minimum_prek_version = "0.4.0"
@@ -30,24 +27,6 @@ hooks = [
 
 [[repos]]
 repo = "local"
-
-[[repos.hooks]]
-id = "ruff-format-project"
-name = "ruff format (deliver-github-issues)"
-language = "system"
-entry = "uv run --project skills/productivity/deliver-github-issues --locked ruff format --check skills/productivity/deliver-github-issues"
-files = "^skills/productivity/deliver-github-issues/"
-types_or = ["python", "toml"]
-pass_filenames = false
-
-[[repos.hooks]]
-id = "ruff-check-project"
-name = "ruff check (deliver-github-issues)"
-language = "system"
-entry = "uv run --project skills/productivity/deliver-github-issues --locked ruff check skills/productivity/deliver-github-issues"
-files = "^skills/productivity/deliver-github-issues/"
-types_or = ["python", "toml"]
-pass_filenames = false
 
 [[repos.hooks]]
 id = "ruff-format-scripts"

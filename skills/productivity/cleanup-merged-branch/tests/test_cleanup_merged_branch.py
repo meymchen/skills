@@ -198,12 +198,6 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
         self.assertEqual(list((SKILL_ROOT / "scripts").glob("*.py")), [SCRIPT])
         self.assertIn("ubuntu-latest", workflow)
         self.assertIn("windows-latest", workflow)
-        self.assertFalse(
-            repository_root.joinpath("skills", "engineering", "deliver-github-issues").exists()
-        )
-        self.assertFalse(
-            repository_root.joinpath("docs", "engineering", "deliver-github-issues.md").exists()
-        )
 
     def test_help_exposes_the_supported_public_options(self) -> None:
         result = subprocess.run(
