@@ -181,6 +181,36 @@ def parse_remote_identity(url: str) -> tuple[str, str]:
     return host.lower(), repository
 
 
+def matching_repository_remotes(
+    root: Path,
+    requested_remote: str | None,
+    name_with_owner: str,
+) -> list[tuple[str, str]]:
+    remotes = git(root, "remote").stdout.splitlines()
+    candidates: list[tuple[str, str]] = []
+    for remote in remotes:
+        if requested_remote and remote != requested_remote:
+            continue
+        url_result = git(root, "config", "--get", f"remote.{remote}.url", check=False)
+        if url_result.returncode != 0:
+            continue
+        try:
+            host, identity = parse_remote_identity(url_result.stdout.strip())
+        except SafetyError:
+            continue
+        if identity.casefold() == name_with_owner.casefold():
+            candidates.append((remote, host))
+    if requested_remote is None and len(candidates) > 1:
+        branch = current_branch(root)
+        configured = git(
+            root, "config", "--get", f"branch.{branch}.remote", check=False
+        ).stdout.strip()
+        preferred = [candidate for candidate in candidates if candidate[0] == configured]
+        if len(preferred) == 1:
+            return preferred
+    return candidates
+
+
 def current_branch(root: Path) -> str:
     result = git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if result.returncode != 0:
@@ -215,28 +245,7 @@ def load_repository_info(root: Path, requested_remote: str | None) -> Repository
     if not name_with_owner or not default_branch:
         raise SafetyError("GitHub did not report a repository and default branch.")
 
-    remotes = git(root, "remote").stdout.splitlines()
-    candidates: list[tuple[str, str]] = []
-    for remote in remotes:
-        if requested_remote and remote != requested_remote:
-            continue
-        url_result = git(root, "config", "--get", f"remote.{remote}.url", check=False)
-        if url_result.returncode != 0:
-            continue
-        try:
-            host, identity = parse_remote_identity(url_result.stdout.strip())
-        except SafetyError:
-            continue
-        if identity.casefold() == name_with_owner.casefold():
-            candidates.append((remote, host))
-    if requested_remote is None and len(candidates) > 1:
-        branch = current_branch(root)
-        configured = git(
-            root, "config", "--get", f"branch.{branch}.remote", check=False
-        ).stdout.strip()
-        preferred = [candidate for candidate in candidates if candidate[0] == configured]
-        if len(preferred) == 1:
-            candidates = preferred
+    candidates = matching_repository_remotes(root, requested_remote, name_with_owner)
     if len(candidates) != 1:
         qualifier = f" named {requested_remote!r}" if requested_remote else ""
         raise SafetyError(
@@ -536,6 +545,58 @@ def stale_branch_candidates(repository: RepositoryInfo, excluded_source_branch: 
     return candidates
 
 
+def verified_stale_branch_oid(
+    repository: RepositoryInfo,
+    branch: str,
+) -> tuple[str | None, str | None]:
+    try:
+        oid = local_branch_oid(repository.root, branch)
+        if oid is None:
+            return None, "local branch disappeared"
+        if remote_branch_exists(repository, branch):
+            return None, "remote branch exists"
+        payload = gh_json(
+            repository.root,
+            "pr",
+            "list",
+            "--state",
+            "merged",
+            "--head",
+            branch,
+            "--limit",
+            "100",
+            "--json",
+            PR_FIELDS,
+        )
+    except CleanupError as error:
+        return None, f"evidence query failed: {error}"
+    matches = [
+        item
+        for item in payload
+        if item.get("headRefName") == branch
+        and item.get("headRefOid") == oid
+        and item.get("baseRefName") == repository.default_branch
+        and not item.get("isCrossRepository")
+    ]
+    if len(matches) != 1:
+        return None, f"expected one matching merged PR; found {len(matches)}"
+    merge_oid = str((matches[0].get("mergeCommit") or {}).get("oid", ""))
+    if (
+        not merge_oid
+        or git(
+            repository.root,
+            "merge-base",
+            "--is-ancestor",
+            merge_oid,
+            repository.default_branch,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        return None, "merge commit is absent from the default branch"
+    return oid, None
+
+
 def clean_stale_branches(
     repository: RepositoryInfo,
     excluded_source_branch: str,
@@ -545,55 +606,10 @@ def clean_stale_branches(
 ) -> list[tuple[str, str]]:
     skipped: list[tuple[str, str]] = []
     for branch in stale_branch_candidates(repository, excluded_source_branch):
-        try:
-            oid = local_branch_oid(repository.root, branch)
-            if oid is None:
-                skipped.append((branch, "local branch disappeared"))
-                continue
-            if remote_branch_exists(repository, branch):
-                skipped.append((branch, "remote branch exists"))
-                continue
-            payload = gh_json(
-                repository.root,
-                "pr",
-                "list",
-                "--state",
-                "merged",
-                "--head",
-                branch,
-                "--limit",
-                "100",
-                "--json",
-                PR_FIELDS,
-            )
-        except CleanupError as error:
-            skipped.append((branch, f"evidence query failed: {error}"))
-            continue
-        matches = [
-            item
-            for item in payload
-            if item.get("headRefName") == branch
-            and item.get("headRefOid") == oid
-            and item.get("baseRefName") == repository.default_branch
-            and not item.get("isCrossRepository")
-        ]
-        if len(matches) != 1:
-            skipped.append((branch, f"expected one matching merged PR; found {len(matches)}"))
-            continue
-        merge_oid = str((matches[0].get("mergeCommit") or {}).get("oid", ""))
-        if (
-            not merge_oid
-            or git(
-                repository.root,
-                "merge-base",
-                "--is-ancestor",
-                merge_oid,
-                repository.default_branch,
-                check=False,
-            ).returncode
-            != 0
-        ):
-            skipped.append((branch, "merge commit is absent from the default branch"))
+        oid, reason = verified_stale_branch_oid(repository, branch)
+        if oid is None:
+            assert reason is not None
+            skipped.append((branch, reason))
             continue
         assert progress.deleted_branches is not None
         if not dry_run:
