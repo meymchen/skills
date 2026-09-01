@@ -422,6 +422,59 @@ class ResolveLinksTests(unittest.TestCase):
         self.assertEqual(result["candidates"][0]["repo"], "other/spec")
 
 
+class CommentTaskListTests(unittest.TestCase):
+    def test_task_lists_in_comments_are_reported(self):
+        comments = [
+            {
+                "url": "https://github.com/owner/repo/issues/7#issuecomment-1",
+                "author": {"login": "someone"},
+                "body": "Rough plan:\n\n- [ ] try the other approach\n- [x] measured it\n",
+            }
+        ]
+        found = vai.comment_task_lists(comments)
+        self.assertEqual([entry["reason"] for entry in found], ["comment", "comment"])
+        self.assertEqual(found[0]["comment"], 1)
+        self.assertEqual(found[0]["author"], "someone")
+        self.assertEqual(found[0]["comment_line"], 3)
+        self.assertEqual(found[0]["text"], "try the other approach")
+        self.assertNotIn("line", found[0])
+
+    def test_comments_without_task_lists_report_nothing(self):
+        found = vai.comment_task_lists([{"body": "Looks good to me."}, {"body": ""}])
+        self.assertEqual(found, [])
+
+    def test_checkboxes_in_fenced_code_inside_a_comment_are_ignored(self):
+        comments = [{"body": "Like this:\n\n```md\n- [ ] sample\n```\n"}]
+        self.assertEqual(vai.comment_task_lists(comments), [])
+
+    def test_extract_folds_comment_findings_into_skipped(self):
+        gh = FakeGh(
+            {
+                "--json body": {"body": "## Criteria\n\n- [ ] real\n"},
+                "--json comments": {
+                    "comments": [{"body": "- [ ] noise", "author": {"login": "x"}, "url": "u"}]
+                },
+            }
+        )
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = vai.main(["extract", "--issue", "7", "--repo", "owner/repo"], runner=gh)
+        self.assertEqual(code, vai.EXIT_OK)
+        payload = json.loads(out.getvalue())
+        self.assertEqual([entry["reason"] for entry in payload["skipped"]], ["comment"])
+        body_items = [i for s in payload["sections"] for i in s["items"]]
+        self.assertEqual([item["text"] for item in body_items], ["real"])
+
+    def test_no_comments_flag_skips_the_extra_call(self):
+        gh = FakeGh({"--json body": {"body": "- [ ] real\n"}})
+        with redirect_stdout(io.StringIO()):
+            code = vai.main(
+                ["extract", "--issue", "7", "--repo", "owner/repo", "--no-comments"], runner=gh
+            )
+        self.assertEqual(code, vai.EXIT_OK)
+        self.assertEqual(len(gh.calls), 1)
+
+
 class ExtractCommandTests(unittest.TestCase):
     def test_extract_reports_the_hash_of_the_body_it_read(self):
         body = "## Criteria\n\n- [ ] one\n"

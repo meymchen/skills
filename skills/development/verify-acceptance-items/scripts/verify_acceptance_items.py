@@ -123,6 +123,12 @@ def fetch_issue_body(runner: Runner, repo: str, issue: int) -> str:
     return data.get("body") or ""
 
 
+def fetch_issue_comments(runner: Runner, repo: str, issue: int) -> list[dict[str, Any]]:
+    data = gh_json(runner, ["issue", "view", str(issue), "--repo", repo, "--json", "comments"])
+    comments = data.get("comments") or []
+    return [comment for comment in comments if isinstance(comment, dict)]
+
+
 # --------------------------------------------------------------------------
 # Body parsing
 # --------------------------------------------------------------------------
@@ -306,6 +312,32 @@ def parse_body(body: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
+def comment_task_lists(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Find task-list items hiding in issue comments.
+
+    These are never acceptance items: a checkbox in a comment is as likely to be
+    somebody's scratch list as a requirement. They are reported so the user knows
+    the skill saw them and left them alone, rather than silently not looking.
+    """
+    found: list[dict[str, Any]] = []
+    for position, comment in enumerate(comments, start=1):
+        parsed = parse_body(comment.get("body") or "")
+        for section in parsed["sections"]:
+            for item in section["items"]:
+                found.append(
+                    {
+                        "reason": "comment",
+                        "comment": position,
+                        "comment_url": comment.get("url", ""),
+                        "author": (comment.get("author") or {}).get("login", ""),
+                        "comment_line": item["line"],
+                        "raw": item["raw"],
+                        "text": item["text"],
+                    }
+                )
+    return found
+
+
 def body_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
@@ -448,12 +480,15 @@ def command_extract(args: argparse.Namespace, runner: Runner) -> int:
     repo = args.repo or default_repo(runner)
     body = fetch_issue_body(runner, repo, args.issue)
     parsed = parse_body(body)
+    skipped = list(parsed["skipped"])
+    if not args.no_comments:
+        skipped.extend(comment_task_lists(fetch_issue_comments(runner, repo, args.issue)))
     payload = {
         "repo": repo,
         "issue": args.issue,
         "body_sha256": body_hash(body),
         "sections": parsed["sections"],
-        "skipped": parsed["skipped"],
+        "skipped": skipped,
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return EXIT_OK
@@ -529,6 +564,11 @@ def build_parser() -> argparse.ArgumentParser:
     extract = subparsers.add_parser("extract", help="report an issue body's task-list structure")
     extract.add_argument("--issue", type=int, required=True)
     extract.add_argument("--repo")
+    extract.add_argument(
+        "--no-comments",
+        action="store_true",
+        help="skip the comment scan; body checkboxes are reported either way",
+    )
     extract.set_defaults(handler=command_extract)
 
     apply_parser = subparsers.add_parser("apply", help="tick specific lines of an issue body")

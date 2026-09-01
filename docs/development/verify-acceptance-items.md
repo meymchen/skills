@@ -72,7 +72,12 @@ stores.
 
 Three kinds of checkbox are deliberately out of scope and reported rather than
 handled: sub-issue entries such as `- [ ] #123`, checkboxes inside tables, and
-task lists in issue comments. Items already ticked are never unticked; when the
+task lists in issue comments. The first two are flagged on the items and in
+`skipped`; comments are scanned in a second read and reported in `skipped` with a
+`reason` of `comment`, which `--no-comments` turns off. A checkbox in a comment is
+as likely to be somebody's scratch list as a requirement, so it is surfaced rather
+than ticked — the alternative is not looking at all, which reads as "there is
+nothing there". Items already ticked are never unticked; when the
 PR's evidence does not support one, the skill warns and leaves it alone, because
 a tick may rest on manual verification the diff cannot show.
 

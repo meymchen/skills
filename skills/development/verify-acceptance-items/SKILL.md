@@ -49,9 +49,11 @@ Every task-list item comes back with `line`, `raw`, `text`, `checked`, `depth`,
 different reasons: judge from `text` (wrapped lines are folded in), and pass
 `raw` back untouched when ticking (it anchors the write).
 
-`skipped` lists checkboxes found inside tables. Report them to the user as
-detected and not handled. Do the same for any task list you notice in the issue's
-comments — read them for context if you like, but never tick them.
+`skipped` lists the checkboxes deliberately left alone, each with a `reason`:
+`table` for checkboxes inside a table, and `comment` for task-list items found in
+the issue's comments. Report both to the user as detected and not handled. Never
+tick either — a `comment` entry carries a `comment_line`, not a body line, and
+there is nothing in the issue body to flip. Read comments for context if useful.
 
 ## 3. Choose the acceptance sections
 
