@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Acceptance Items"
+  short_description: "Check a PR against its issue's acceptance items and tick the proven ones"
+  default_prompt: "Use $verify-acceptance-items to check the relevant pull request against the acceptance items of the issue it is linked to."
