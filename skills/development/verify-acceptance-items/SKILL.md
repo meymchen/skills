@@ -66,10 +66,27 @@ the confirmation step.
 Exclude items with `sub_issue: true`. If the issue has checkboxes but none read
 like acceptance items, say so plainly rather than reporting "no acceptance items".
 
-## 4. Judge each item
+## 4. Judge each item in a subagent
 
-Evidence comes from the PR diff, its checks, and its body and commit messages.
-Do not check out the branch and do not run tests.
+Delegate the judging to a single subagent with a fresh context, carrying every
+acceptance item of every issue in one brief. If this session wrote the PR, it knows
+the intent behind the code, and that knowledge reads as evidence for items the diff
+does not actually prove. A subagent that has only the PR and the item texts cannot
+make that mistake.
+
+One subagent, not one per issue. The isolation comes from the fresh context, not
+from the split, while the cost is dominated by reading the PR — which every extra
+subagent would pay for again to judge the same diff. Split only when a brief grows
+too large to hold, and note in the report that you did.
+
+Hand it the repo, the PR number, and the acceptance items grouped by issue — `text`
+to judge from, `raw` to quote back — and nothing else. Do not summarise what the PR
+does, do not say which items you expect to pass, and do not pass on what you
+remember from writing the code. Each of those puts the contamination back.
+
+Brief it to gather evidence only from the PR diff, its checks, and its body and
+commit messages, through `gh`; never to check out the branch and never to run
+tests. It returns one verdict per item:
 
 - `satisfied` — cite a `path:line` or a check name. No citation, no verdict.
 - `unsatisfied` — word it as **"no evidence in this PR"**, never as "this was not
@@ -79,8 +96,18 @@ Do not check out the branch and do not run tests.
   another person, behaviour on a device you cannot see. Use this verdict freely.
   Guessing here is worse than admitting the limit.
 
-Judge nested children independently. Treat a parent as `satisfied` only when every
+Nested children are judged independently. A parent is `satisfied` only when every
 child is.
+
+Report the verdicts as they come back, keeping each issue's items in its own report
+section. Where you believe one is wrong because of something outside the PR, that
+belief is the contamination this step exists to keep out: carry the item as
+`undecidable` and let the user settle it in step 5.
+Re-running a subagent is fine when its brief was faulty — a missing item, the wrong
+PR number — but never to shop for a verdict you prefer.
+
+Where no subagent is available, judge the items yourself under the same rules and
+say in the report that the judging was not isolated.
 
 ## 5. Report, then wait
 
@@ -122,3 +149,5 @@ issue.
 - Untick an item. A tick may rest on manual verification you cannot see; removing
   it replaces someone's knowledge with your ignorance. Warn instead.
 - Tick a sub-issue entry, a table checkbox, or a checkbox in a comment.
+- Feed the judging subagent your own account of what the PR does. That single
+  paragraph undoes the isolation the subagent is there for.

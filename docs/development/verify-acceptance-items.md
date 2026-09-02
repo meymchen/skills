@@ -2,7 +2,9 @@
 
 `verify-acceptance-items` checks whether a pull request satisfies the acceptance
 items of the issues it is linked to, and ticks the ones the PR proves. Judgement
-stays with the agent; a helper script does the parts that must be deterministic.
+stays with the agent — in a subagent that sees only the PR, so the session's own
+memory of the work cannot pass for evidence — and a helper script does the parts
+that must be deterministic.
 
 [Read the skill source](../../skills/development/verify-acceptance-items/SKILL.md).
 
@@ -52,6 +54,28 @@ stdin:
   "tick": [{ "line": 13, "raw": "- [ ] the exact anchor line" }]
 }
 ```
+
+## Isolated judging
+
+The verdicts are produced by one subagent with a fresh context, covering every
+acceptance item of every issue. A session that just wrote the PR carries the intent
+behind the code, and that intent reads as evidence for acceptance items the diff
+does not prove; the subagent receives only the repository, the PR number, and the
+acceptance item texts, so it can judge nothing but what the PR shows. Its brief
+forbids checking out the branch and running tests, which keeps the evidence to the
+diff, the checks, and the PR's own prose.
+
+The judging is not split per issue. Isolation comes from the fresh context rather
+than from the number of subagents, and the cost of the run is dominated by reading
+the PR — a read each additional subagent would repeat to judge the same diff
+against a different slice of the items.
+
+The main session reports the verdicts rather than revising them. A disagreement
+grounded in something outside the PR is carried as `undecidable` and put to the
+user, who can adjudicate it in the confirmation step; ticks made on that basis are
+marked user-adjudicated rather than evidenced. An agent without subagent support
+judges the items itself under the same rules and says in its report that the
+judging was not isolated.
 
 ## Safety model
 
