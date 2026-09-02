@@ -38,8 +38,8 @@ TAB_WIDTH = 4
 TASK_ITEM = re.compile(
     r"^(?P<indent>[ \t]*)(?P<marker>[-*+])[ \t]+\[(?P<state>[ xX])\](?P<text>[ \t].*|)$"
 )
-ATX_HEADING = re.compile(r"^(?P<hashes>#{1,6})[ \t]+(?P<title>.+?)[ \t]*#*[ \t]*$")
-BOLD_HEADING = re.compile(r"^(?:\*\*|__)(?P<title>.+?)(?:\*\*|__)[ \t]*[:：]?[ \t]*$")
+ATX_HEADING = re.compile(r"^(?P<hashes>#{1,6})[ \t]+(?P<title>.+?)[ \t]*(?:#+[ \t]*)?$")
+BOLD_HEADING = re.compile(r"^(?:\*\*|__)(?P<title>.+?)(?:\*\*|__)[ \t]*(?:[:：][ \t]*)?$")
 DETAILS_OPEN = re.compile(r"^[ \t]*<details\b", re.IGNORECASE)
 DETAILS_CLOSE = re.compile(r"^[ \t]*</details>", re.IGNORECASE)
 SUMMARY_TEXT = re.compile(r"<summary>(?P<title>.*?)</summary>", re.IGNORECASE | re.DOTALL)
