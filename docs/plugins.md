@@ -1,7 +1,7 @@
 # Plugin marketplaces
 
 This repository is a marketplace-ready source for Claude Code and Codex. The
-marketplace catalogs publish `commit-toolkit`, providing commit, commit-and-PR,
+marketplace catalogs publish `commit-toolkit`, providing commit, pull-request,
 and gone-branch cleanup workflows. Remote GitHub installation has not yet been
 exercised end to end. The existing standalone skills remain available through
 the `skills` CLI.

@@ -1,11 +1,12 @@
 # Commit Toolkit
 
-Streamline routine Git work with three focused skills adapted from Anthropic's
+Streamline routine Git work with focused skills adapted from Anthropic's
 `commit-commands` plugin:
 
 - `commit` creates a focused local commit.
 - `commit-push-pr` commits changes, pushes a branch, and opens a GitHub pull
   request.
+- `update-pr-body` updates a pull request from its net change.
 - `clean-gone` safely removes merged local branches whose upstreams are gone.
 
 The workflows keep command usage small and task-focused while preserving
