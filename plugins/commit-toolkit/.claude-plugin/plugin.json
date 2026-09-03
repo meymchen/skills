@@ -1,0 +1,12 @@
+{
+  "name": "commit-toolkit",
+  "version": "0.1.0",
+  "description": "Commit changes, publish pull requests, and clean gone Git branches safely.",
+  "author": {
+    "name": "Yuming Chen",
+    "url": "https://github.com/meymchen"
+  },
+  "homepage": "https://github.com/meymchen/skills/tree/main/plugins/commit-toolkit",
+  "repository": "https://github.com/meymchen/skills",
+  "license": "MIT"
+}

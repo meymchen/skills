@@ -124,7 +124,7 @@ def _render_text(path: Path, text: str, values: dict[str, str]) -> str:
     rendered = text
     for key, value in values.items():
         replacement = value
-        if path.suffix == ".json":
+        if path.suffix in {".json", ".yaml", ".yml"}:
             replacement = json.dumps(value, ensure_ascii=False)[1:-1]
         elif path.name == "SKILL.md" and key == "description":
             replacement = value.replace("'", "''")
@@ -219,8 +219,7 @@ def _validate_author(payload: dict[str, Any], location: str) -> None:
         raise PluginError(f"{location}.author must not publish an email address")
 
 
-def _validate_skill(plugin: Path, name: str) -> None:
-    skill = plugin / "skills" / name / "SKILL.md"
+def _validate_skill(skill: Path, name: str) -> None:
     try:
         text = skill.read_text(encoding="utf-8")
     except FileNotFoundError as error:
@@ -232,6 +231,29 @@ def _validate_skill(plugin: Path, name: str) -> None:
         raise PluginError(f"skill name must match plugin name: {skill}")
     if not any(line.startswith("description: ") for line in frontmatter.splitlines()):
         raise PluginError(f"skill description is missing: {skill}")
+    metadata = skill.parent / "agents" / "openai.yaml"
+    if not metadata.is_file():
+        raise PluginError(f"skill UI metadata is missing: {metadata}")
+
+
+def _validate_skills(plugin: Path) -> None:
+    skills_root = plugin / "skills"
+    skills = (
+        sorted(
+            path
+            for path in skills_root.iterdir()
+            if path.is_dir() and (path / "SKILL.md").is_file()
+        )
+        if skills_root.is_dir()
+        else []
+    )
+    if not skills:
+        raise PluginError(f"plugin must contain at least one skill: {skills_root}")
+    for skill_directory in skills:
+        name = skill_directory.name
+        if NAME_RE.fullmatch(name) is None:
+            raise PluginError(f"skill folder must use lowercase kebab-case: {skill_directory}")
+        _validate_skill(skill_directory / "SKILL.md", name)
 
 
 def _validate_shared_manifest_fields(
@@ -300,7 +322,7 @@ def validate_plugin(root: Path, raw_name: str) -> tuple[dict[str, Any], dict[str
     codex = _load_json(codex_path)
     _validate_shared_manifest_fields(name, claude, codex, claude_path, codex_path)
     _validate_codex_manifest(codex, codex_path)
-    _validate_skill(plugin, name)
+    _validate_skills(plugin)
     _validate_rendered_text(plugin)
     return claude, codex
 

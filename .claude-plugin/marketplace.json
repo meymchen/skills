@@ -4,5 +4,15 @@
     "name": "Yuming Chen"
   },
   "description": "Dual-host plugins maintained by Yuming Chen.",
-  "plugins": []
+  "plugins": [
+    {
+      "name": "commit-toolkit",
+      "source": "./plugins/commit-toolkit",
+      "description": "Commit changes, publish pull requests, and clean gone Git branches safely.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Yuming Chen"
+      }
+    }
+  ]
 }

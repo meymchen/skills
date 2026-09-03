@@ -21,8 +21,8 @@ npx skills@latest add meymchen/skills
 ## Plugins
 
 This repository is also structured as a self-hosted plugin marketplace for
-Claude Code and Codex. It currently provides marketplace infrastructure and a
-dual-host plugin template, but no published plugins.
+Claude Code and Codex. Its first published plugin is `commit-toolkit`, which
+commits changes, publishes pull requests, and cleans gone Git branches.
 
 See [Plugin marketplaces](docs/plugins.md) to create, validate, and publish a
 plugin.

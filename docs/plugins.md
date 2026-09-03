@@ -1,9 +1,10 @@
 # Plugin marketplaces
 
 This repository is a marketplace-ready source for Claude Code and Codex. The
-marketplace catalogs are currently empty: there are no published plugins to
-install, and remote GitHub installation has not yet been exercised end to end.
-The existing standalone skills remain available through the `skills` CLI.
+marketplace catalogs publish `commit-toolkit`, providing commit, commit-and-PR,
+and gone-branch cleanup workflows. Remote GitHub installation has not yet been
+exercised end to end. The existing standalone skills remain available through
+the `skills` CLI.
 
 ## Layout
 
@@ -16,8 +17,9 @@ scripts/create_plugin.py               Plugin lifecycle command
 ```
 
 A generated plugin contains one Claude Code manifest, one Codex manifest, a
-minimal skill, and a development README. The native manifests are authoritative;
-the repository checks that their shared identity fields agree.
+minimal skill with `agents/openai.yaml`, and a development README. The native
+manifests are authoritative; the repository checks that their shared identity
+fields agree.
 
 ## Requirements
 
@@ -82,21 +84,19 @@ Plugin removal remains a reviewed manual change.
 
 ## Add the marketplaces
 
-The catalogs can be added now, but remain empty until the first plugin is
-published:
+Add the catalogs with:
 
 ```console
 claude plugin marketplace add meymchen/skills
 codex plugin marketplace add meymchen/skills
 ```
 
-After a plugin is published, install it by name:
+Install `commit-toolkit` with:
 
 ```console
-claude plugin install <plugin-name>@meymchen-skills
-codex plugin add <plugin-name>@meymchen-skills
+claude plugin install commit-toolkit@meymchen-skills
+codex plugin add commit-toolkit@meymchen-skills
 ```
 
-Remote GitHub installation will be added to the automated end-to-end checks
-when the repository contains its first published plugin. Until then, CI proves
-the same discovery and installation flow against a generated local marketplace.
+CI currently proves discovery and installation against a generated local
+marketplace. Remote GitHub installation remains a future end-to-end check.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Commit, Push, and Open PR"
+  short_description: "Commit changes, push the branch, and open a GitHub PR"
+  default_prompt: "Use $commit-push-pr to commit my changes, push the branch, and open a GitHub pull request."
+
+policy:
+  allow_implicit_invocation: true
