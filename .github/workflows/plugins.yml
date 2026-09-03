@@ -9,6 +9,7 @@ on:
       - "docs/plugins.md"
       - "plugins/**"
       - "scripts/create_plugin.py"
+      - "scripts/create_plugin.py.lock"
       - "tests/test_create_plugin.py"
   push:
     branches: [main]
@@ -19,6 +20,7 @@ on:
       - "docs/plugins.md"
       - "plugins/**"
       - "scripts/create_plugin.py"
+      - "scripts/create_plugin.py.lock"
       - "tests/test_create_plugin.py"
   schedule:
     - cron: "17 6 * * 1"
@@ -44,15 +46,15 @@ jobs:
       - run: uv python install 3.12.14
       - run: uvx --no-build ruff@0.16.5 format --check scripts tests
       - run: uvx --no-build ruff@0.16.5 check scripts tests
-      - run: uv run --python 3.12.14 python -m unittest discover -s tests -v
-      - run: uv run --script scripts/create_plugin.py check --all
+      - run: uv run --frozen --no-build --python 3.12.14 python -m unittest discover -s tests -v
+      - run: uv run --frozen --no-build --script scripts/create_plugin.py check --all
 
   native-smoke:
     needs: test
     runs-on: ubuntu-latest
     env:
-      CODEX_VERSION: ${{ github.event_name == 'schedule' && 'latest' || '0.152.1' }}
-      CLAUDE_VERSION: ${{ github.event_name == 'schedule' && 'latest' || '2.1.248' }}
+      CODEX_VERSION: "0.152.1"
+      CLAUDE_VERSION: "2.1.248"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -64,8 +66,22 @@ jobs:
           python-version: "3.12.14"
           enable-cache: true
       - run: uv python install 3.12.14
-      - name: Install host CLIs
-        run: npm install --global "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_VERSION}"
+      - name: Require current pins on scheduled runs
+        if: github.event_name == 'schedule'
+        run: |
+          test "$(npm view @openai/codex version)" = "${CODEX_VERSION}"
+          test "$(npm view @anthropic-ai/claude-code version)" = "${CLAUDE_VERSION}"
+      - name: Unpack pinned host CLIs without lifecycle scripts
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p plugin-bin codex-package claude-package
+          npm pack --silent @openai/codex@0.152.1-linux-x64
+          tar -xzf openai-codex-0.152.1-linux-x64.tgz -C codex-package
+          install -m 0755 codex-package/package/vendor/x86_64-unknown-linux-musl/bin/codex plugin-bin/codex
+          npm pack --silent @anthropic-ai/claude-code-linux-x64@2.1.248
+          tar -xzf anthropic-ai-claude-code-linux-x64-2.1.248.tgz -C claude-package
+          install -m 0755 claude-package/package/claude plugin-bin/claude
+          echo "${RUNNER_TEMP}/plugin-bin" >> "${GITHUB_PATH}"
       - name: Prepare isolated user directory
         run: |
           mkdir -p "${RUNNER_TEMP}/plugin-home/.codex"
@@ -75,7 +91,7 @@ jobs:
           echo "CLAUDE_CONFIG_DIR=${RUNNER_TEMP}/plugin-home/.claude" >> "${GITHUB_ENV}"
       - name: Generate and publish smoke fixture
         run: >-
-          uv run --script scripts/create_plugin.py create smoke-test
+          uv run --frozen --no-build --script scripts/create_plugin.py create smoke-test
           --description "Exercise marketplace discovery and installation."
           --publish
       - name: Validate with Claude Code

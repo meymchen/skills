@@ -45,6 +45,12 @@ class PluginRepositoryTestCase(unittest.TestCase):
 
 
 class CreatePluginTests(PluginRepositoryTestCase):
+    def test_contained_path_rejects_template_path_escape(self) -> None:
+        target = self.root / "plugins" / "sample"
+
+        with self.assertRaisesRegex(subject.PluginError, "escapes"):
+            subject._contained_path(target, "..", "escaped.txt")
+
     def test_create_normalizes_name_and_renders_both_manifests(self) -> None:
         name = subject.create_plugin(
             self.root,

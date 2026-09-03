@@ -107,10 +107,17 @@ def _catalog_paths(root: Path) -> tuple[Path, Path]:
 
 def _plugin_path(root: Path, name: str) -> Path:
     plugins_root = (root / "plugins").resolve()
-    target = (plugins_root / name).resolve()
-    if target.parent != plugins_root:
-        raise PluginError("plugin path escapes the plugins directory")
-    return target
+    return _contained_path(plugins_root, name)
+
+
+def _contained_path(root: Path, *parts: str) -> Path:
+    resolved_root = root.resolve()
+    candidate = resolved_root.joinpath(*parts).resolve()
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError as error:
+        raise PluginError(f"path escapes its allowed root: {candidate}") from error
+    return candidate
 
 
 def _render_text(path: Path, text: str, values: dict[str, str]) -> str:
@@ -150,7 +157,7 @@ def render_template(
         relative_parts = [
             part.replace("__plugin_name__", name) for part in source.relative_to(template).parts
         ]
-        destination = target.joinpath(*relative_parts)
+        destination = _contained_path(target, *relative_parts)
         if source.is_dir():
             destination.mkdir(parents=True, exist_ok=True)
             continue
@@ -225,15 +232,13 @@ def _validate_skill(plugin: Path, name: str) -> None:
         raise PluginError(f"skill description is missing: {skill}")
 
 
-def validate_plugin(root: Path, raw_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    name = normalize_name(raw_name)
-    plugin = _plugin_path(root, name)
-    if not plugin.is_dir():
-        raise PluginError(f"plugin does not exist: {plugin}")
-    claude_path = plugin / ".claude-plugin" / "plugin.json"
-    codex_path = plugin / ".codex-plugin" / "plugin.json"
-    claude = _load_json(claude_path)
-    codex = _load_json(codex_path)
+def _validate_shared_manifest_fields(
+    name: str,
+    claude: dict[str, Any],
+    codex: dict[str, Any],
+    claude_path: Path,
+    codex_path: Path,
+) -> None:
     for key in ("name", "version", "description"):
         claude_value = _require_string(claude, key, str(claude_path))
         codex_value = _require_string(codex, key, str(codex_path))
@@ -247,6 +252,9 @@ def validate_plugin(root: Path, raw_name: str) -> tuple[dict[str, Any], dict[str
     _validate_author(codex, str(codex_path))
     if claude.get("license") != "MIT" or codex.get("license") != "MIT":
         raise PluginError("both plugin manifests must declare the MIT license")
+
+
+def _validate_codex_manifest(codex: dict[str, Any], codex_path: Path) -> None:
     if codex.get("skills") != "./skills/":
         raise PluginError("Codex manifest must discover skills at ./skills/")
     interface = codex.get("interface")
@@ -265,13 +273,33 @@ def validate_plugin(root: Path, raw_name: str) -> tuple[dict[str, Any], dict[str
         raise PluginError(f"Codex developerName must be {AUTHOR_NAME}")
     if not isinstance(interface.get("capabilities"), list):
         raise PluginError("Codex capabilities must be an array")
-    _validate_skill(plugin, name)
+
+
+def _validate_rendered_text(plugin: Path) -> None:
     text_suffixes = {".json", ".md", ".toml", ".txt", ".yaml", ".yml"}
-    for path in plugin.rglob("*"):
-        if path.is_file() and path.suffix.lower() in text_suffixes:
-            match = TOKEN_RE.search(path.read_text(encoding="utf-8"))
-            if match:
-                raise PluginError(f"unresolved template marker in {path}")
+    text_files = (
+        path
+        for path in plugin.rglob("*")
+        if path.is_file() and path.suffix.lower() in text_suffixes
+    )
+    for path in text_files:
+        if TOKEN_RE.search(path.read_text(encoding="utf-8")):
+            raise PluginError(f"unresolved template marker in {path}")
+
+
+def validate_plugin(root: Path, raw_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    name = normalize_name(raw_name)
+    plugin = _plugin_path(root, name)
+    if not plugin.is_dir():
+        raise PluginError(f"plugin does not exist: {plugin}")
+    claude_path = plugin / ".claude-plugin" / "plugin.json"
+    codex_path = plugin / ".codex-plugin" / "plugin.json"
+    claude = _load_json(claude_path)
+    codex = _load_json(codex_path)
+    _validate_shared_manifest_fields(name, claude, codex, claude_path, codex_path)
+    _validate_codex_manifest(codex, codex_path)
+    _validate_skill(plugin, name)
+    _validate_rendered_text(plugin)
     return claude, codex
 
 
@@ -292,14 +320,7 @@ def _catalog_entries(payload: dict[str, Any], location: Path) -> dict[str, dict[
     return entries
 
 
-def validate_catalogs(
-    root: Path,
-    claude: dict[str, Any] | None = None,
-    codex: dict[str, Any] | None = None,
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-    claude_path, codex_path = _catalog_paths(root)
-    claude = claude or _load_json(claude_path)
-    codex = codex or _load_json(codex_path)
+def _validate_catalog_metadata(claude: dict[str, Any], codex: dict[str, Any]) -> None:
     if claude.get("name") != MARKETPLACE_NAME or codex.get("name") != MARKETPLACE_NAME:
         raise PluginError(f"both marketplace names must be {MARKETPLACE_NAME}")
     if claude.get("owner") != {"name": AUTHOR_NAME}:
@@ -308,32 +329,53 @@ def validate_catalogs(
         raise PluginError("Claude marketplace description is invalid")
     if codex.get("interface") != {"displayName": "Meymchen Skills"}:
         raise PluginError("Codex marketplace interface metadata is invalid")
+
+
+def _validate_published_entry(
+    root: Path,
+    name: str,
+    claude_entry: dict[str, Any],
+    codex_entry: dict[str, Any],
+) -> None:
+    expected_path = f"./plugins/{name}"
+    if claude_entry.get("source") != expected_path:
+        raise PluginError(f"Claude source for {name} must be {expected_path}")
+    if codex_entry.get("source") != {"source": "local", "path": expected_path}:
+        raise PluginError(f"Codex source for {name} must be local path {expected_path}")
+    expected_policy = {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+    }
+    if codex_entry.get("policy") != expected_policy:
+        raise PluginError(f"Codex policy for {name} is invalid")
+    if codex_entry.get("category") != CATEGORY:
+        raise PluginError(f"Codex category for {name} must be {CATEGORY}")
+    plugin_claude, _ = validate_plugin(root, name)
+    expected_claude_metadata = {
+        "version": plugin_claude["version"],
+        "description": plugin_claude["description"],
+        "author": {"name": AUTHOR_NAME},
+    }
+    for field, expected in expected_claude_metadata.items():
+        if claude_entry.get(field) != expected:
+            raise PluginError(f"Claude marketplace {field} for {name} is out of sync")
+
+
+def validate_catalogs(
+    root: Path,
+    claude: dict[str, Any] | None = None,
+    codex: dict[str, Any] | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    claude_path, codex_path = _catalog_paths(root)
+    claude = claude or _load_json(claude_path)
+    codex = codex or _load_json(codex_path)
+    _validate_catalog_metadata(claude, codex)
     claude_entries = _catalog_entries(claude, claude_path)
     codex_entries = _catalog_entries(codex, codex_path)
     if claude_entries.keys() != codex_entries.keys():
         raise PluginError("Claude and Codex marketplaces must list the same plugins")
     for name in claude_entries:
-        expected_path = f"./plugins/{name}"
-        claude_entry = claude_entries[name]
-        codex_entry = codex_entries[name]
-        if claude_entry.get("source") != expected_path:
-            raise PluginError(f"Claude source for {name} must be {expected_path}")
-        if codex_entry.get("source") != {"source": "local", "path": expected_path}:
-            raise PluginError(f"Codex source for {name} must be local path {expected_path}")
-        if codex_entry.get("policy") != {
-            "installation": "AVAILABLE",
-            "authentication": "ON_INSTALL",
-        }:
-            raise PluginError(f"Codex policy for {name} is invalid")
-        if codex_entry.get("category") != CATEGORY:
-            raise PluginError(f"Codex category for {name} must be {CATEGORY}")
-        plugin_claude, _ = validate_plugin(root, name)
-        if claude_entry.get("version") != plugin_claude["version"]:
-            raise PluginError(f"Claude marketplace version for {name} is out of sync")
-        if claude_entry.get("description") != plugin_claude["description"]:
-            raise PluginError(f"Claude marketplace description for {name} is out of sync")
-        if claude_entry.get("author") != {"name": AUTHOR_NAME}:
-            raise PluginError(f"Claude marketplace author for {name} is invalid")
+        _validate_published_entry(root, name, claude_entries[name], codex_entries[name])
     return claude_entries, codex_entries
 
 
@@ -496,43 +538,60 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_create(args: argparse.Namespace, root: Path) -> None:
+    name = create_plugin(
+        root,
+        args.name,
+        description=args.description,
+        display_name=args.display_name,
+        version=args.version,
+    )
+    if args.publish:
+        publish_plugin(root, name)
+        print(f"Created and published {name}")
+        return
+    print(f"Created draft plugin {name}")
+
+
+def _run_publish(args: argparse.Namespace, root: Path) -> None:
+    print(f"Published {publish_plugin(root, args.name)}")
+
+
+def _run_sync(args: argparse.Namespace, root: Path) -> None:
+    print(f"Synchronized {sync_plugin(root, args.name)}")
+
+
+def _run_check(args: argparse.Namespace, root: Path) -> None:
+    if args.all and args.name:
+        raise PluginError("pass a plugin name or --all, not both")
+    if args.all:
+        check_all(root)
+        print("All plugins and marketplaces are valid")
+        return
+    if not args.name:
+        raise PluginError("check requires a plugin name or --all")
+    name = normalize_name(args.name)
+    validate_plugin(root, name)
+    claude_entries, codex_entries = validate_catalogs(root)
+    if (name in claude_entries) != (name in codex_entries):
+        raise PluginError(f"plugin has a one-sided marketplace entry: {name}")
+    print(f"Plugin {name} is valid")
+
+
+COMMAND_HANDLERS = {
+    "create": _run_create,
+    "publish": _run_publish,
+    "sync": _run_sync,
+    "check": _run_check,
+}
+
+
 def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     root = (root or repository_root()).resolve()
     try:
-        if args.command == "create":
-            name = create_plugin(
-                root,
-                args.name,
-                description=args.description,
-                display_name=args.display_name,
-                version=args.version,
-            )
-            if args.publish:
-                publish_plugin(root, name)
-                print(f"Created and published {name}")
-            else:
-                print(f"Created draft plugin {name}")
-        elif args.command == "publish":
-            print(f"Published {publish_plugin(root, args.name)}")
-        elif args.command == "sync":
-            print(f"Synchronized {sync_plugin(root, args.name)}")
-        elif args.command == "check":
-            if args.all and args.name:
-                raise PluginError("pass a plugin name or --all, not both")
-            if args.all:
-                check_all(root)
-                print("All plugins and marketplaces are valid")
-            elif args.name:
-                name = normalize_name(args.name)
-                validate_plugin(root, name)
-                claude_entries, codex_entries = validate_catalogs(root)
-                if (name in claude_entries) != (name in codex_entries):
-                    raise PluginError(f"plugin has a one-sided marketplace entry: {name}")
-                print(f"Plugin {name} is valid")
-            else:
-                raise PluginError("check requires a plugin name or --all")
+        COMMAND_HANDLERS[args.command](args, root)
     except PluginError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
