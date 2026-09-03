@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "commit-toolkit",
+      "name": "git-workflows",
       "source": {
         "source": "local",
-        "path": "./plugins/commit-toolkit"
+        "path": "./plugins/git-workflows"
       },
       "policy": {
         "installation": "AVAILABLE",

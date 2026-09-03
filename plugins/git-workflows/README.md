@@ -1,4 +1,4 @@
-# Commit Toolkit
+# Git Workflows
 
 Streamline routine Git work with focused skills adapted from Anthropic's
 `commit-commands` plugin:
@@ -15,8 +15,8 @@ unrelated changes and requiring explicit scope for force operations.
 ## Install
 
 ```console
-claude plugin install commit-toolkit@meymchen-skills
-codex plugin add commit-toolkit@meymchen-skills
+claude plugin install git-workflows@meymchen-skills
+codex plugin add git-workflows@meymchen-skills
 ```
 
 ## Development
@@ -24,11 +24,11 @@ codex plugin add commit-toolkit@meymchen-skills
 Validate it from the repository root:
 
 ```console
-uv run --script scripts/create_plugin.py check commit-toolkit
+uv run --script scripts/create_plugin.py check git-workflows
 ```
 
 After changing metadata, synchronize its entries in both Marketplace catalogs:
 
 ```console
-uv run --script scripts/create_plugin.py sync commit-toolkit
+uv run --script scripts/create_plugin.py sync git-workflows
 ```

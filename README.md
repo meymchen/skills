@@ -19,7 +19,7 @@ npx skills@latest add meymchen/skills
 ## Plugins
 
 This repository is also structured as a self-hosted plugin marketplace for
-Claude Code and Codex. Its first published plugin is `commit-toolkit`, which
+Claude Code and Codex. Its first published plugin is `git-workflows`, which
 commits changes, publishes pull requests, and cleans gone Git branches.
 
 See [Plugin marketplaces](docs/plugins.md) to create, validate, and publish a

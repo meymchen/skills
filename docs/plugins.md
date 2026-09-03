@@ -1,7 +1,7 @@
 # Plugin marketplaces
 
 This repository is a marketplace-ready source for Claude Code and Codex. The
-marketplace catalogs publish `commit-toolkit`, providing commit, pull-request,
+marketplace catalogs publish `git-workflows`, providing commit, pull-request,
 and gone-branch cleanup workflows. Remote GitHub installation has not yet been
 exercised end to end. The existing standalone skills remain available through
 the `skills` CLI.
@@ -91,11 +91,11 @@ claude plugin marketplace add meymchen/skills
 codex plugin marketplace add meymchen/skills
 ```
 
-Install `commit-toolkit` with:
+Install `git-workflows` with:
 
 ```console
-claude plugin install commit-toolkit@meymchen-skills
-codex plugin add commit-toolkit@meymchen-skills
+claude plugin install git-workflows@meymchen-skills
+codex plugin add git-workflows@meymchen-skills
 ```
 
 CI currently proves discovery and installation against a generated local
