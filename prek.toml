@@ -33,7 +33,7 @@ id = "ruff-format-scripts"
 name = "ruff format (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.5 format --check"
-files = "^skills/(routine/cleanup-merged-branch|development/verify-acceptance-items)/"
+files = "^(skills/(routine/cleanup-merged-branch|development/verify-acceptance-items)/|scripts/create_plugin[.]py$|tests/test_create_plugin[.]py$)"
 types = ["python"]
 
 [[repos.hooks]]
@@ -41,8 +41,16 @@ id = "ruff-check-scripts"
 name = "ruff check (standalone scripts)"
 language = "system"
 entry = "uvx ruff@0.16.5 check"
-files = "^skills/(routine/cleanup-merged-branch|development/verify-acceptance-items)/"
+files = "^(skills/(routine/cleanup-merged-branch|development/verify-acceptance-items)/|scripts/create_plugin[.]py$|tests/test_create_plugin[.]py$)"
 types = ["python"]
+
+[[repos.hooks]]
+id = "check-plugins"
+name = "check plugin marketplaces"
+language = "system"
+entry = "uv run --script scripts/create_plugin.py check --all"
+files = "^([.]agents/plugins/|[.]claude-plugin/|plugins/|scripts/create_plugin[.]py$|tests/test_create_plugin[.]py$)"
+pass_filenames = false
 
 [[repos.hooks]]
 id = "markdownlint"

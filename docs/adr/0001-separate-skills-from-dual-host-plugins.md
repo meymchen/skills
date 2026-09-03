@@ -1,0 +1,3 @@
+# Separate standalone Skills from dual-Host Plugins
+
+Keep the existing Skill collection and its `skills` CLI distribution unchanged, while introducing a separate `plugins/` collection for native Marketplace distribution. New Plugins start from one generated template containing shared content and distinct Claude Code and Codex metadata; the template itself is not published. Generation creates a Draft Plugin with a minimal Skill, while an explicit publication option adds it to both Host catalogs. The initial catalogs may therefore be empty. This preserves existing consumers and prevents two Host-specific plugin trees or catalogs from drifting, at the cost of maintaining two native manifests per Plugin.

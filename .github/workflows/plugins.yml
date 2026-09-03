@@ -1,0 +1,109 @@
+name: Plugins
+
+on:
+  pull_request:
+    paths:
+      - ".agents/plugins/**"
+      - ".claude-plugin/**"
+      - ".github/workflows/plugins.yml"
+      - "docs/plugins.md"
+      - "plugins/**"
+      - "scripts/create_plugin.py"
+      - "scripts/create_plugin.py.lock"
+      - "tests/test_create_plugin.py"
+  push:
+    branches: [main]
+    paths:
+      - ".agents/plugins/**"
+      - ".claude-plugin/**"
+      - ".github/workflows/plugins.yml"
+      - "docs/plugins.md"
+      - "plugins/**"
+      - "scripts/create_plugin.py"
+      - "scripts/create_plugin.py.lock"
+      - "tests/test_create_plugin.py"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.12.5"
+          python-version: "3.12.14"
+          enable-cache: true
+      - run: uv python install 3.12.14
+      - run: uvx --no-build ruff@0.16.5 format --check scripts tests
+      - run: uvx --no-build ruff@0.16.5 check scripts tests
+      - run: uv run --frozen --no-build --python 3.12.14 python -m unittest discover -s tests -v
+      - run: uv run --frozen --no-build --script scripts/create_plugin.py check --all
+
+  native-smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      CODEX_VERSION: "0.152.1"
+      CLAUDE_VERSION: "2.1.248"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.12.5"
+          python-version: "3.12.14"
+          enable-cache: true
+      - run: uv python install 3.12.14
+      - name: Require current pins on scheduled runs
+        if: github.event_name == 'schedule'
+        run: |
+          test "$(npm view @openai/codex version)" = "${CODEX_VERSION}"
+          test "$(npm view @anthropic-ai/claude-code version)" = "${CLAUDE_VERSION}"
+      - name: Unpack pinned host CLIs without lifecycle scripts
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p plugin-bin codex-package claude-package
+          npm pack --silent @openai/codex@0.152.1-linux-x64
+          tar -xzf openai-codex-0.152.1-linux-x64.tgz -C codex-package
+          install -m 0755 codex-package/package/vendor/x86_64-unknown-linux-musl/bin/codex plugin-bin/codex
+          npm pack --silent @anthropic-ai/claude-code-linux-x64@2.1.248
+          tar -xzf anthropic-ai-claude-code-linux-x64-2.1.248.tgz -C claude-package
+          install -m 0755 claude-package/package/claude plugin-bin/claude
+          echo "${RUNNER_TEMP}/plugin-bin" >> "${GITHUB_PATH}"
+      - name: Prepare isolated user directory
+        run: |
+          mkdir -p "${RUNNER_TEMP}/plugin-home/.codex"
+          mkdir -p "${RUNNER_TEMP}/plugin-home/.claude"
+          echo "HOME=${RUNNER_TEMP}/plugin-home" >> "${GITHUB_ENV}"
+          echo "CODEX_HOME=${RUNNER_TEMP}/plugin-home/.codex" >> "${GITHUB_ENV}"
+          echo "CLAUDE_CONFIG_DIR=${RUNNER_TEMP}/plugin-home/.claude" >> "${GITHUB_ENV}"
+      - name: Generate and publish smoke fixture
+        run: >-
+          uv run --frozen --no-build --script scripts/create_plugin.py create smoke-test
+          --description "Exercise marketplace discovery and installation."
+          --publish
+      - name: Validate with Claude Code
+        run: |
+          claude plugin validate --strict plugins/smoke-test
+          claude plugin validate --strict .claude-plugin/marketplace.json
+      - name: Install with Claude Code
+        run: |
+          claude plugin marketplace add "${GITHUB_WORKSPACE}" --scope user
+          claude plugin install smoke-test@meymchen-skills --scope user
+      - name: Install with Codex
+        run: |
+          codex plugin marketplace add "${GITHUB_WORKSPACE}" --json
+          codex plugin list --marketplace meymchen-skills --available --json
+          codex plugin add smoke-test@meymchen-skills --json
