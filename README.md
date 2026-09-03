@@ -17,3 +17,16 @@ Reusable agent skills, grouped by domain under [`skills/`](skills/).
 ```console
 npx skills@latest add meymchen/skills
 ```
+
+## Plugins
+
+This repository is also structured as a self-hosted plugin marketplace for
+Claude Code and Codex. It currently provides marketplace infrastructure and a
+dual-host plugin template, but no published plugins.
+
+See [Plugin marketplaces](docs/plugins.md) to create, validate, and publish a
+plugin.
+
+## License
+
+[MIT](LICENSE)

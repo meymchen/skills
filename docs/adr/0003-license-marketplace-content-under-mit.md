@@ -1,0 +1,3 @@
+# License Marketplace content under MIT
+
+License the repository's public Marketplace infrastructure, Plugin Template, generated starting content, and existing material under the MIT License, and declare `MIT` in generated Plugin manifests. Use `Copyright (c) 2026 Yuming Chen`; the repository history currently identifies Yuming Chen as its only contributor. A permissive license gives users explicit permission to copy and adapt the template, which an unlicensed public repository would not provide. This decision should be implemented with a root `LICENSE` before describing the Marketplace as reusable.

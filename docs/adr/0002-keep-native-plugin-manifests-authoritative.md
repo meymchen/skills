@@ -1,0 +1,3 @@
+# Keep native Plugin manifests authoritative
+
+Store one Claude Code manifest and one Codex manifest in every Plugin, with CI checking that their shared identity fields agree. Do not introduce a third neutral manifest: although it could generate both Host formats, it would hide native capabilities behind a repository-specific abstraction and become another schema to maintain. The Plugin Generator accepts shared metadata once and renders both native files, while later Host-specific edits remain possible. Repository tests enforce cross-Host invariants, while pinned native CLIs validate and install a generated fixture; a scheduled latest-version run detects upstream contract changes without making pull-request checks irreproducible.
