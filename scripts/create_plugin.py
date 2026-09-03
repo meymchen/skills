@@ -163,7 +163,9 @@ def render_template(
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
         text = source.read_text(encoding="utf-8")
-        destination.write_text(_render_text(source, text, values), encoding="utf-8", newline="\n")
+        rendered = _render_text(source, text, values)
+        with destination.open("w", encoding="utf-8", newline="\n") as output:
+            output.write(rendered)
 
 
 def create_plugin(
