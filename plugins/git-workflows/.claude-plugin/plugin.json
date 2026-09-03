@@ -1,0 +1,12 @@
+{
+  "name": "git-workflows",
+  "version": "0.1.0",
+  "description": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+  "author": {
+    "name": "Yuming Chen",
+    "url": "https://github.com/meymchen"
+  },
+  "homepage": "https://github.com/meymchen/skills/tree/main/plugins/git-workflows",
+  "repository": "https://github.com/meymchen/skills",
+  "license": "MIT"
+}

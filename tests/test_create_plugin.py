@@ -25,6 +25,13 @@ class PluginRepositoryTestCase(unittest.TestCase):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(SOURCE_ROOT / relative, destination)
+            payload = json.loads(destination.read_text(encoding="utf-8"))
+            payload["plugins"] = []
+            destination.write_text(
+                json.dumps(payload, indent=2) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
 
     def create(self, name: str = "sample-plugin") -> str:
         return subject.create_plugin(
@@ -67,6 +74,8 @@ class CreatePluginTests(PluginRepositoryTestCase):
         self.assertIn(
             "description: 'Review a user''s focused request.'", skill.read_text(encoding="utf-8")
         )
+        metadata = self.root / "plugins/my-plugin/skills/my-plugin/agents/openai.yaml"
+        self.assertIn('display_name: "My Plugin"', metadata.read_text(encoding="utf-8"))
 
     def test_create_refuses_collisions(self) -> None:
         self.create()
@@ -91,6 +100,40 @@ class CreatePluginTests(PluginRepositoryTestCase):
         asset.write_bytes(b"\x89PNG\r\n\x1a\n\x00\xff")
 
         subject.validate_plugin(self.root, name)
+
+    def test_validation_accepts_multiple_named_skills(self) -> None:
+        name = self.create()
+        source = self.root / "plugins" / name / "skills" / name
+        extra = self.root / "plugins" / name / "skills" / "extra-workflow"
+        shutil.copytree(source, extra)
+        skill = extra / "SKILL.md"
+        skill.write_text(
+            skill.read_text(encoding="utf-8").replace(f"name: {name}", "name: extra-workflow", 1),
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        subject.validate_plugin(self.root, name)
+
+    def test_validation_rejects_a_skill_name_mismatch(self) -> None:
+        name = self.create()
+        skill = self.root / "plugins" / name / "skills" / name / "SKILL.md"
+        skill.write_text(
+            skill.read_text(encoding="utf-8").replace(f"name: {name}", "name: wrong-name", 1),
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        with self.assertRaisesRegex(subject.PluginError, "skill name must match"):
+            subject.validate_plugin(self.root, name)
+
+    def test_validation_requires_skill_ui_metadata(self) -> None:
+        name = self.create()
+        metadata = self.root / "plugins" / name / "skills" / name / "agents" / "openai.yaml"
+        metadata.unlink()
+
+        with self.assertRaisesRegex(subject.PluginError, "UI metadata is missing"):
+            subject.validate_plugin(self.root, name)
 
 
 class MarketplaceLifecycleTests(PluginRepositoryTestCase):

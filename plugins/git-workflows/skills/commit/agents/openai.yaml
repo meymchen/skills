@@ -1,0 +1,7 @@
+interface:
+  display_name: "Commit"
+  short_description: "Create a focused Git commit with deliberate staging"
+  default_prompt: "Use $commit to inspect my changes and create a focused Git commit."
+
+policy:
+  allow_implicit_invocation: true

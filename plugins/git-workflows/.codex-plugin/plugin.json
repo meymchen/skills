@@ -1,0 +1,22 @@
+{
+  "name": "git-workflows",
+  "version": "0.1.0",
+  "description": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+  "author": {
+    "name": "Yuming Chen",
+    "url": "https://github.com/meymchen"
+  },
+  "homepage": "https://github.com/meymchen/skills/tree/main/plugins/git-workflows",
+  "repository": "https://github.com/meymchen/skills",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Git Workflows",
+    "shortDescription": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+    "longDescription": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+    "developerName": "Yuming Chen",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me manage a Git commit, pull request, or local branch cleanup."
+  }
+}

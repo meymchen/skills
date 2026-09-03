@@ -1,0 +1,7 @@
+interface:
+  display_name: "Clean Gone Branches"
+  short_description: "Clean merged local branches whose upstreams are gone"
+  default_prompt: "Use $clean-gone to remove merged local branches whose upstream branches are gone."
+
+policy:
+  allow_implicit_invocation: true

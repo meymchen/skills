@@ -4,5 +4,15 @@
     "name": "Yuming Chen"
   },
   "description": "Dual-host plugins maintained by Yuming Chen.",
-  "plugins": []
+  "plugins": [
+    {
+      "name": "git-workflows",
+      "source": "./plugins/git-workflows",
+      "description": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Yuming Chen"
+      }
+    }
+  ]
 }
