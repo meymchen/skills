@@ -60,7 +60,12 @@ uv run --script scripts/create_plugin.py check --all
 ```
 
 The repository check is deterministic and offline. CI also renders a temporary
-plugin and exercises the native host CLIs in an isolated user directory.
+plugin and exercises the native host CLIs in an isolated user directory. Each
+native smoke run resolves the npm `latest` releases of Claude Code and Codex,
+logs their versions, and downloads the matching native packages without running
+npm lifecycle scripts. Pull requests, pushes, manual runs, and the weekly
+schedule all test these latest releases. Plugins and skills target the latest
+Host releases; compatibility failures require adapting the affected content.
 
 ## Publish and update
 

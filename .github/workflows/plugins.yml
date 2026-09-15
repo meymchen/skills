@@ -52,12 +52,9 @@ jobs:
   native-smoke:
     needs: test
     runs-on: ubuntu-latest
-    env:
-      CODEX_VERSION: "0.152.1"
-      CLAUDE_VERSION: "2.1.248"
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -66,20 +63,20 @@ jobs:
           python-version: "3.12.14"
           enable-cache: true
       - run: uv python install 3.12.14
-      - name: Require current pins on scheduled runs
-        if: github.event_name == 'schedule'
-        run: |
-          test "$(npm view @openai/codex version)" = "${CODEX_VERSION}"
-          test "$(npm view @anthropic-ai/claude-code version)" = "${CLAUDE_VERSION}"
-      - name: Unpack pinned host CLIs without lifecycle scripts
+      - name: Unpack latest host CLIs without lifecycle scripts
         working-directory: ${{ runner.temp }}
+        shell: bash
         run: |
+          codex_version=$(npm view @openai/codex@latest version)
+          claude_version=$(npm view @anthropic-ai/claude-code@latest version)
+          echo "Codex latest: ${codex_version}"
+          echo "Claude Code latest: ${claude_version}"
           mkdir -p plugin-bin codex-package claude-package
-          npm pack --silent @openai/codex@0.152.1-linux-x64
-          tar -xzf openai-codex-0.152.1-linux-x64.tgz -C codex-package
+          codex_archive=$(npm pack --silent --ignore-scripts "@openai/codex@${codex_version}-linux-x64")
+          tar -xzf "${codex_archive}" -C codex-package
           install -m 0755 codex-package/package/vendor/x86_64-unknown-linux-musl/bin/codex plugin-bin/codex
-          npm pack --silent @anthropic-ai/claude-code-linux-x64@2.1.248
-          tar -xzf anthropic-ai-claude-code-linux-x64-2.1.248.tgz -C claude-package
+          claude_archive=$(npm pack --silent --ignore-scripts "@anthropic-ai/claude-code-linux-x64@${claude_version}")
+          tar -xzf "${claude_archive}" -C claude-package
           install -m 0755 claude-package/package/claude plugin-bin/claude
           echo "${RUNNER_TEMP}/plugin-bin" >> "${GITHUB_PATH}"
       - name: Prepare isolated user directory
