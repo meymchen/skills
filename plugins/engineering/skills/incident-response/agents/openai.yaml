@@ -1,0 +1,6 @@
+interface:
+  display_name: "Incident Response"
+  default_prompt: "Use $engineering:incident-response to triage the incident described in my request."
+
+policy:
+  allow_implicit_invocation: false

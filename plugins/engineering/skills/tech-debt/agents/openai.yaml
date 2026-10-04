@@ -1,0 +1,6 @@
+interface:
+  display_name: "Tech Debt"
+  default_prompt: "Use $engineering:tech-debt to prioritize technical debt in this project."
+
+policy:
+  allow_implicit_invocation: true

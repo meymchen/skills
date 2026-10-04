@@ -1,0 +1,6 @@
+interface:
+  display_name: "Documentation"
+  default_prompt: "Use $engineering:documentation to write or update the technical document I need."
+
+policy:
+  allow_implicit_invocation: true

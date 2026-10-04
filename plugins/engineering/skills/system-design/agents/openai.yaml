@@ -1,0 +1,6 @@
+interface:
+  display_name: "System Design"
+  default_prompt: "Use $engineering:system-design to design a system around my requirements and constraints."
+
+policy:
+  allow_implicit_invocation: true

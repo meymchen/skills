@@ -1,0 +1,6 @@
+interface:
+  display_name: "Standup"
+  default_prompt: "Use $engineering:standup to summarize my recent work, next steps, and blockers."
+
+policy:
+  allow_implicit_invocation: false

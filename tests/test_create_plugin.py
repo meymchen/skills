@@ -135,6 +135,60 @@ class CreatePluginTests(PluginRepositoryTestCase):
         with self.assertRaisesRegex(subject.PluginError, "UI metadata is missing"):
             subject.validate_plugin(self.root, name)
 
+    def test_apache_plugin_can_be_validated_and_published_with_its_license(self) -> None:
+        name = self.create()
+        for host in ("claude", "codex"):
+            relative = f"plugins/{name}/.{host}-plugin/plugin.json"
+            manifest = self.read_json(relative)
+            manifest["license"] = "Apache-2.0"
+            self.write_json(relative, manifest)
+        (self.root / "plugins" / name / "LICENSE").write_text(
+            "Apache License, Version 2.0\n", encoding="utf-8"
+        )
+
+        subject.publish_plugin(self.root, name)
+
+        claude, codex = subject.validate_catalogs(self.root)
+        self.assertIn(name, claude)
+        self.assertIn(name, codex)
+
+    def test_apache_plugin_requires_a_nonempty_license_file(self) -> None:
+        name = self.create()
+        for host in ("claude", "codex"):
+            relative = f"plugins/{name}/.{host}-plugin/plugin.json"
+            manifest = self.read_json(relative)
+            manifest["license"] = "Apache-2.0"
+            self.write_json(relative, manifest)
+        license_path = self.root / "plugins" / name / "LICENSE"
+
+        for content in (None, "", " \n"):
+            with self.subTest(content=content):
+                if content is not None:
+                    license_path.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(subject.PluginError, "non-empty LICENSE"):
+                    subject.validate_plugin(self.root, name)
+
+    def test_validation_rejects_mismatched_licenses(self) -> None:
+        name = self.create()
+        relative = f"plugins/{name}/.codex-plugin/plugin.json"
+        manifest = self.read_json(relative)
+        manifest["license"] = "Apache-2.0"
+        self.write_json(relative, manifest)
+
+        with self.assertRaisesRegex(subject.PluginError, "disagree on license"):
+            subject.validate_plugin(self.root, name)
+
+    def test_validation_rejects_unsupported_licenses(self) -> None:
+        name = self.create()
+        for host in ("claude", "codex"):
+            relative = f"plugins/{name}/.{host}-plugin/plugin.json"
+            manifest = self.read_json(relative)
+            manifest["license"] = "unknown"
+            self.write_json(relative, manifest)
+
+        with self.assertRaisesRegex(subject.PluginError, "license must be"):
+            subject.validate_plugin(self.root, name)
+
 
 class MarketplaceLifecycleTests(PluginRepositoryTestCase):
     def test_publish_adds_matching_entries(self) -> None:

@@ -13,6 +13,15 @@
       "author": {
         "name": "Yuming Chen"
       }
+    },
+    {
+      "name": "engineering",
+      "source": "./plugins/engineering",
+      "description": "Engineering workflows for personal and team projects, adapted from Anthropic's engineering plugin.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Yuming Chen"
+      }
     }
   ]
 }

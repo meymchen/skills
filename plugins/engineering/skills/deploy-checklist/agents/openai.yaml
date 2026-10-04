@@ -1,0 +1,6 @@
+interface:
+  display_name: "Deploy Checklist"
+  default_prompt: "Use $engineering:deploy-checklist to prepare a deployment checklist for this release."
+
+policy:
+  allow_implicit_invocation: false
