@@ -1,10 +1,10 @@
 # Verify acceptance items
 
 `verify-acceptance-items` checks whether a pull request satisfies the acceptance
-items of the issues it is linked to, and ticks the ones the PR proves. Judgement
-stays with the agent — in a subagent that sees only the PR, so the session's own
-memory of the work cannot pass for evidence — and a helper script does the parts
-that must be deterministic.
+criteria of the issues it is linked to, and ticks the ones the PR proves. A helper
+script does every part with a deterministic answer. The agent keeps the two
+judgements a script cannot make: which task-list items are acceptance criteria,
+and, in a subagent that sees only the PR, whether each one is satisfied.
 
 [Read the skill source](../../skills/development/verify-acceptance-items/SKILL.md).
 
@@ -28,65 +28,75 @@ npx skills@latest add meymchen/skills --skill verify-acceptance-items --agent op
 ```
 
 Invoke it as `$verify-acceptance-items` in Codex or `/verify-acceptance-items` in
-Claude Code and OpenCode. The agent may also reach for it on its own while working
-on a PR; the confirmation step below is what protects the issue either way.
+Claude Code and OpenCode. The agent also reaches for it on its own when asked
+whether a PR is done, when asked to check off an issue's checkboxes, or right
+after opening a PR that closes an issue; the confirmation step protects the issue
+either way.
 
 ## Subcommands
 
 ```console
-uv run --script <skill-dir>/scripts/verify_acceptance_items.py links --pr 123
+uv run --script <skill-dir>/scripts/verify_acceptance_items.py links [--pr 123]
 uv run --script <skill-dir>/scripts/verify_acceptance_items.py extract --repo owner/name --issue 42
-uv run --script <skill-dir>/scripts/verify_acceptance_items.py apply --dry-run
+uv run --script <skill-dir>/scripts/verify_acceptance_items.py brief --pr 123 --items "#42:L13,L15" "other/spec#3:L4"
+uv run --script <skill-dir>/scripts/verify_acceptance_items.py apply --issue 42 --body-sha256 <hash> --tick L13 L15 [--dry-run]
 ```
 
-`--repo` defaults to the current repository. `links` reports each candidate issue
-with a `provenance` of `closing_reference`, `body_mention`, or `branch_name`, and
-rejects any number that resolves to a pull request, since GitHub shares one number
-space between issues and PRs. `extract` reports the issue body's task-list
-structure and never chooses an acceptance section. `apply` reads its plan from
-stdin:
+`--repo` defaults to the current repository.
 
-```json
-{
-  "repo": "owner/name",
-  "issue": 42,
-  "body_sha256": "<the value extract reported>",
-  "tick": [{ "line": 13, "raw": "- [ ] the exact anchor line" }]
-}
-```
+- `links` reports each candidate issue with a `provenance` of
+  `closing_reference`, `body_mention`, or `branch_name`, and rejects any number
+  that resolves to a pull request, since GitHub shares one number space between
+  issues and PRs. Without `--pr` it uses the current branch's PR.
+- `extract` reports the issue body's task-list structure, giving every item an
+  `L<line>` id, and the `body_sha256` of the body it read. It never chooses an
+  acceptance section.
+- `brief` renders the judging subagent's complete prompt from the chosen item
+  ids, one selection per issue. Item texts come from the issue itself, and their
+  checked state is left out, because an existing tick is not evidence.
+- `apply` ticks the given item ids in one issue.
+
+Item ids are the only thing the agent passes between commands, so no criterion
+text or line is ever retyped by the model.
 
 ## Isolated judging
 
 The verdicts are produced by one subagent with a fresh context, covering every
-acceptance item of every issue. A session that just wrote the PR carries the intent
-behind the code, and that intent reads as evidence for acceptance items the diff
-does not prove; the subagent receives only the repository, the PR number, and the
-acceptance item texts, so it can judge nothing but what the PR shows. Its brief
-forbids checking out the branch and running tests, which keeps the evidence to the
-diff, the checks, and the PR's own prose.
+acceptance criterion of every issue. A session that just wrote the PR carries the
+intent behind the code, and that intent reads as evidence for criteria the diff
+does not prove. The subagent's prompt is the output of `brief`, passed on
+verbatim: the repository, the PR number, the evidence and verdict rules, and the
+criteria texts. Because the script writes it, the main session has no place to
+add its own account of the PR. The rules keep the evidence to the diff, the
+checks, and the PR's own prose; the subagent neither checks out the branch nor
+runs tests. The prompt's wording lives in
+[`assets/judge-brief.md`](../../skills/development/verify-acceptance-items/assets/judge-brief.md).
 
 The judging is not split per issue. Isolation comes from the fresh context rather
 than from the number of subagents, and the cost of the run is dominated by reading
-the PR — a read each additional subagent would repeat to judge the same diff
-against a different slice of the items.
+the PR, a read each additional subagent would repeat to judge the same diff
+against a different slice of the criteria.
 
 The main session reports the verdicts rather than revising them. A disagreement
 grounded in something outside the PR is carried as `undecidable` and put to the
 user, who can adjudicate it in the confirmation step; ticks made on that basis are
 marked user-adjudicated rather than evidenced. An agent without subagent support
-judges the items itself under the same rules and says in its report that the
-judging was not isolated.
+follows the brief itself and says in its report that the judging was not
+isolated.
 
 ## Safety model
 
 The only write is a single character flip per ticked line.
 
-Before writing, `apply` re-reads the issue body, compares its SHA-256 against the
-value `extract` reported, and compares each target line against the `raw` text
-recorded for it. A mismatch on either check aborts the run: somebody edited the
-issue in the meantime, so the recorded line numbers can no longer be trusted.
-Ticking a line that is already `[x]` is reported as already checked rather than
-treated as an error, which makes reruns safe.
+Before writing, `apply` re-reads the issue body and compares its SHA-256 against
+the value `extract` reported. A mismatch aborts the run: somebody edited the issue
+in the meantime, so the recorded line numbers can no longer be trusted. A match
+means the body is byte-identical to the one `extract` numbered, so the ids alone
+address the right lines. `apply` then parses the body the same way `extract` did
+and refuses any id that is not a task-list item, which rules out prose, table
+cells, fenced code, and sub-issue entries such as `- [ ] #123`. Ticking an item
+that is already `[x]` is reported as already checked rather than treated as an
+error, which makes reruns safe.
 
 The body is otherwise rewritten byte for byte, including line endings, images,
 HTML comments, and trailing whitespace. The script never regenerates prose. GitHub
@@ -95,21 +105,21 @@ may normalise line endings on its own when storing the result, so
 stores.
 
 Three kinds of checkbox are deliberately out of scope and reported rather than
-handled: sub-issue entries such as `- [ ] #123`, checkboxes inside tables, and
-task lists in issue comments. The first two are flagged on the items and in
-`skipped`; comments are scanned in a second read and reported in `skipped` with a
-`reason` of `comment`, which `--no-comments` turns off. A checkbox in a comment is
-as likely to be somebody's scratch list as a requirement, so it is surfaced rather
-than ticked — the alternative is not looking at all, which reads as "there is
-nothing there". Items already ticked are never unticked; when the
-PR's evidence does not support one, the skill warns and leaves it alone, because
-a tick may rest on manual verification the diff cannot show.
+handled: sub-issue entries, checkboxes inside tables, and task lists in issue
+comments. The first two are flagged on the items and in `skipped`; comments are
+scanned in a second read and reported in `skipped` with a `reason` of `comment`,
+which `--no-comments` turns off. A checkbox in a comment is as likely to be
+somebody's scratch list as a requirement, so it is surfaced rather than ticked.
+Items already ticked are never unticked; when the PR's evidence does not support
+one, the skill warns and leaves it alone, because a tick may rest on manual
+verification the diff cannot show.
 
 ## Exit codes
 
 - `0`: the command completed;
 - `1`: a `gh` or filesystem operation failed;
-- `2`: a precondition was not satisfied, including a changed issue body, a target
-  line that no longer matches, and missing write access;
-- `64`: the command line or the stdin plan was invalid;
+- `2`: a precondition was not satisfied, including a changed issue body and
+  missing write access;
+- `64`: the command line was invalid, including an item id that is not a
+  tickable task-list item;
 - `130`: the user interrupted the run.

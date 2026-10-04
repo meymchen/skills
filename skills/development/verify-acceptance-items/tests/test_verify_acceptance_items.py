@@ -7,6 +7,7 @@ import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 SKILL_ROOT = Path(__file__).parents[1]
 SCRIPT = SKILL_ROOT / "scripts" / "verify_acceptance_items.py"
@@ -64,6 +65,37 @@ class ParseHeadingSectionsTests(unittest.TestCase):
         section = parsed["sections"][0]
         self.assertEqual(section["kind"], "bold")
         self.assertEqual(section["heading_path"], ["Acceptance criteria", "Safety"])
+
+    def test_a_details_block_after_a_bold_line_is_its_sibling(self):
+        body = (
+            "## Criteria\n"
+            "\n"
+            "**Out of scope**\n"
+            "\n"
+            "- [ ] excluded\n"
+            "\n"
+            "<details><summary>Deferred</summary>\n"
+            "\n"
+            "- [ ] later\n"
+            "\n"
+            "</details>\n"
+            "\n"
+            "- [ ] after\n"
+        )
+        paths = [s["heading_path"] for s in vai.parse_body(body)["sections"]]
+        self.assertEqual(
+            paths, [["Criteria", "Out of scope"], ["Criteria", "Deferred"], ["Criteria"]]
+        )
+
+    def test_a_heading_after_a_leading_bold_line_is_not_nested_under_it(self):
+        body = "**Note**\n\n- [ ] noted\n\n## Criteria\n\n- [ ] real\n"
+        paths = [s["heading_path"] for s in vai.parse_body(body)["sections"]]
+        self.assertEqual(paths, [["Note"], ["Criteria"]])
+
+    def test_a_bold_line_inside_details_stays_inside_it(self):
+        body = "<details><summary>Deferred</summary>\n\n**Later**\n\n- [ ] later\n\n</details>\n"
+        paths = [s["heading_path"] for s in vai.parse_body(body)["sections"]]
+        self.assertEqual(paths, [["Deferred", "Later"]])
 
     def test_a_line_with_two_bold_runs_is_not_a_section(self):
         body = "## Criteria\n\n**one** and **two**\n\n- [ ] item\n"
@@ -179,7 +211,7 @@ class ParseItemDetailTests(unittest.TestCase):
 class TickLinesTests(unittest.TestCase):
     def test_flips_only_the_requested_checkbox(self):
         body = "- [ ] one\n- [ ] two\n"
-        updated, ticked, already = vai.tick_lines(body, [{"line": 2, "raw": "- [ ] two"}])
+        updated, ticked, already = vai.tick_lines(body, [2])
         self.assertEqual(updated, "- [ ] one\n- [x] two\n")
         self.assertEqual(ticked, [2])
         self.assertEqual(already, [])
@@ -197,91 +229,120 @@ class TickLinesTests(unittest.TestCase):
             "trailing spaces below   \n"
             "\n"
         )
-        updated, ticked, _ = vai.tick_lines(body, [{"line": 6, "raw": "- [ ] tick me   "}])
+        updated, ticked, _ = vai.tick_lines(body, [6])
         self.assertEqual(ticked, [6])
         self.assertEqual(updated, body.replace("- [ ] tick me", "- [x] tick me", 1))
-        before = body.split("\n")
-        after = updated.split("\n")
-        self.assertEqual(len(before), len(after))
-        for index, (old, new) in enumerate(zip(before, after, strict=True)):
-            if index != 5:
-                self.assertEqual(old, new, f"line {index + 1} changed")
 
     def test_preserves_crlf_line_endings(self):
         body = "- [ ] one\r\n- [ ] two\r\n"
-        updated, ticked, _ = vai.tick_lines(body, [{"line": 1, "raw": "- [ ] one"}])
+        updated, ticked, _ = vai.tick_lines(body, [1])
         self.assertEqual(updated, "- [x] one\r\n- [ ] two\r\n")
         self.assertEqual(ticked, [1])
 
+    def test_line_numbers_agree_with_extract_around_form_feeds(self):
+        # str.splitlines() would also split on \f and shift every later line.
+        body = "intro\fstill line one\n- [ ] two\n"
+        self.assertEqual(vai.body_items(body)[2]["text"], "two")
+        updated, ticked, _ = vai.tick_lines(body, [2])
+        self.assertEqual(updated, "intro\fstill line one\n- [x] two\n")
+        self.assertEqual(ticked, [2])
+
     def test_already_ticked_line_is_idempotent(self):
         body = "- [x] one\n"
-        updated, ticked, already = vai.tick_lines(body, [{"line": 1, "raw": "- [ ] one"}])
+        updated, ticked, already = vai.tick_lines(body, [1])
         self.assertEqual(updated, body)
         self.assertEqual(ticked, [])
         self.assertEqual(already, [1])
 
-    def test_changed_target_line_aborts(self):
-        body = "- [ ] one, reworded\n"
-        with self.assertRaises(vai.SkillError) as caught:
-            vai.tick_lines(body, [{"line": 1, "raw": "- [ ] one"}])
-        self.assertEqual(caught.exception.code, vai.EXIT_PRECONDITION)
+    def test_lines_that_are_not_tickable_items_are_refused(self):
+        cases = {
+            "prose": ("just prose\n", 1),
+            "outside the body": ("- [ ] one\n", 9),
+            "fenced code": ("```md\n- [ ] sample\n```\n", 2),
+            "table": ("| a | [ ] |\n", 1),
+            "sub-issue": ("- [ ] #123\n", 1),
+        }
+        for name, (body, line) in cases.items():
+            with self.subTest(name), self.assertRaises(vai.SkillError) as caught:
+                vai.tick_lines(body, [line])
+            self.assertEqual(caught.exception.code, vai.EXIT_USAGE)
 
-    def test_line_outside_the_body_aborts(self):
-        with self.assertRaises(vai.SkillError) as caught:
-            vai.tick_lines("- [ ] one\n", [{"line": 9, "raw": "- [ ] one"}])
-        self.assertEqual(caught.exception.code, vai.EXIT_PRECONDITION)
 
-    def test_non_task_line_aborts(self):
-        with self.assertRaises(vai.SkillError) as caught:
-            vai.tick_lines("just prose\n", [{"line": 1, "raw": "just prose"}])
-        self.assertEqual(caught.exception.code, vai.EXIT_PRECONDITION)
+class RunGhTests(unittest.TestCase):
+    def test_stdin_reaches_gh_byte_for_byte(self):
+        # Text-mode pipes on Windows turn "\r\n" into "\r\r\n" on the way in.
+        body = "- [x] one\r\n- [ ] two\nlast"
+        completed = vai.subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+        with mock.patch.object(vai.subprocess, "run", return_value=completed) as run:
+            vai.run_gh(["issue", "edit", "7", "--body-file", "-"], body)
+        kwargs = run.call_args.kwargs
+        self.assertEqual(kwargs["input"], body.encode("utf-8"))
+        self.assertFalse(kwargs.get("text"))
+
+    def test_stdout_is_decoded_as_utf8(self):
+        completed = vai.subprocess.CompletedProcess(
+            [], 0, stdout='{"body": "验收标准"}'.encode(), stderr=b""
+        )
+        with mock.patch.object(vai.subprocess, "run", return_value=completed):
+            self.assertEqual(vai.run_gh(["issue", "view"]), '{"body": "验收标准"}')
+
+
+class LineIdTests(unittest.TestCase):
+    def test_accepts_extract_ids_and_bare_numbers(self):
+        self.assertEqual(vai.line_id("L13"), 13)
+        self.assertEqual(vai.line_id("13"), 13)
+
+    def test_rejects_anything_else(self):
+        for value in ("L0", "line13", "L-1", ""):
+            with self.subTest(value), self.assertRaises(vai.argparse.ArgumentTypeError):
+                vai.line_id(value)
+
+
+def run_main(argv, gh):
+    out = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(io.StringIO()):
+        try:
+            code = vai.main(list(argv), runner=gh)
+        except SystemExit as exc:  # argparse usage errors
+            code = exc.code
+    return code, out.getvalue()
 
 
 class ApplyCommandTests(unittest.TestCase):
     body = "## Criteria\n\n- [ ] one\n- [ ] two\n"
 
-    def plan(self, **overrides):
-        plan = {
-            "repo": "owner/repo",
-            "issue": 7,
-            "body_sha256": vai.body_hash(self.body),
-            "tick": [{"line": 3, "raw": "- [ ] one"}],
-        }
-        plan.update(overrides)
-        return plan
-
-    def run_apply(self, plan, gh, argv=("apply",)):
-        stdin = io.StringIO(json.dumps(plan))
-        original = vai.sys.stdin
-        vai.sys.stdin = stdin
-        out = io.StringIO()
-        try:
-            with redirect_stdout(out), redirect_stderr(io.StringIO()):
-                code = vai.main(list(argv), runner=gh)
-        finally:
-            vai.sys.stdin = original
-        return code, out.getvalue()
+    def argv(self, *extra, sha=None):
+        return [
+            "apply",
+            "--repo",
+            "owner/repo",
+            "--issue",
+            "7",
+            "--body-sha256",
+            sha or vai.body_hash(self.body),
+            "--tick",
+            "L3",
+            *extra,
+        ]
 
     def test_writes_the_ticked_body_through_stdin(self):
         gh = FakeGh({"issue view": {"body": self.body}, "issue edit": ""})
-        code, out = self.run_apply(self.plan(), gh)
+        code, out = run_main(self.argv(), gh)
         self.assertEqual(code, vai.EXIT_OK)
-        payload = json.loads(out)
-        self.assertEqual(payload["ticked"], [3])
+        self.assertEqual(json.loads(out)["ticked"], [3])
         edit = [call for call in gh.calls if "edit" in call[0]][0]
-        self.assertIn("--body-file", edit[0])
-        self.assertIn("-", edit[0])
+        self.assertEqual(edit[0][-2:], ["--body-file", "-"])
         self.assertEqual(edit[1], "## Criteria\n\n- [x] one\n- [ ] two\n")
 
     def test_changed_body_hash_aborts_before_writing(self):
         gh = FakeGh({"issue view": {"body": self.body + "- [ ] three\n"}})
-        code, _ = self.run_apply(self.plan(), gh)
+        code, _ = run_main(self.argv(), gh)
         self.assertEqual(code, vai.EXIT_PRECONDITION)
         self.assertFalse([call for call in gh.calls if "edit" in call[0]])
 
     def test_dry_run_makes_no_write(self):
         gh = FakeGh({"issue view": {"body": self.body}})
-        code, out = self.run_apply(self.plan(), gh, argv=("apply", "--dry-run"))
+        code, out = run_main(self.argv("--dry-run"), gh)
         self.assertEqual(code, vai.EXIT_OK)
         self.assertTrue(json.loads(out)["dry_run"])
         self.assertFalse([call for call in gh.calls if "edit" in call[0]])
@@ -291,27 +352,86 @@ class ApplyCommandTests(unittest.TestCase):
             {"issue view": {"body": self.body}},
             failures={"issue edit": "HTTP 403: Resource not accessible by integration"},
         )
-        code, _ = self.run_apply(self.plan(), gh)
+        code, _ = run_main(self.argv(), gh)
         self.assertEqual(code, vai.EXIT_PRECONDITION)
 
-    def test_plan_without_a_hash_is_a_usage_error(self):
-        gh = FakeGh({})
-        plan = self.plan()
-        del plan["body_sha256"]
-        code, _ = self.run_apply(plan, gh)
+    def test_a_non_item_line_is_a_usage_error_and_nothing_is_written(self):
+        gh = FakeGh({"issue view": {"body": self.body}})
+        argv = self.argv()
+        argv[argv.index("L3")] = "L1"
+        code, _ = run_main(argv, gh)
         self.assertEqual(code, vai.EXIT_USAGE)
+        self.assertFalse([call for call in gh.calls if "edit" in call[0]])
 
-    def test_malformed_plan_is_a_usage_error(self):
+    def test_missing_hash_is_rejected_by_the_parser(self):
         gh = FakeGh({})
-        stdin = io.StringIO("{not json")
-        original = vai.sys.stdin
-        vai.sys.stdin = stdin
-        try:
-            with redirect_stderr(io.StringIO()):
-                code = vai.main(["apply"], runner=gh)
-        finally:
-            vai.sys.stdin = original
-        self.assertEqual(code, vai.EXIT_USAGE)
+        code, _ = run_main(["apply", "--issue", "7", "--tick", "L3"], gh)
+        self.assertNotEqual(code, vai.EXIT_OK)
+        self.assertEqual(gh.calls, [])
+
+
+class BriefCommandTests(unittest.TestCase):
+    body = (
+        "## Acceptance criteria\n"
+        "\n"
+        "- [x] parent criterion\n"
+        "  - [ ] child criterion\n"
+        "- [ ] #55\n"
+        "- [ ] wrapped criterion\n"
+        "      continues here\n"
+    )
+
+    def test_renders_only_the_chosen_items_with_their_ids(self):
+        gh = FakeGh({"issue view 42": {"body": self.body}})
+        code, out = run_main(
+            ["brief", "--repo", "owner/repo", "--pr", "12", "--items", "#42:L3,L4,L6"], gh
+        )
+        self.assertEqual(code, vai.EXIT_OK)
+        self.assertIn("pull request #12 in\n`owner/repo`", out)
+        self.assertIn("gh pr diff 12 --repo owner/repo", out)
+        self.assertIn(
+            "### owner/repo#42\n\n"
+            "- L3: parent criterion\n"
+            "  - L4: child criterion\n"
+            "- L6: wrapped criterion continues here\n",
+            out,
+        )
+        self.assertNotIn("[x]", out.split("## Criteria", 1)[1])
+        self.assertNotIn("$", out)
+
+    def test_groups_items_by_issue_across_repositories(self):
+        gh = FakeGh(
+            {
+                "issue view 42 --repo owner/repo": {"body": self.body},
+                "issue view 3 --repo other/spec": {"body": "- [ ] spec item\n"},
+            }
+        )
+        code, out = run_main(
+            [
+                "brief",
+                "--repo",
+                "owner/repo",
+                "--pr",
+                "12",
+                "--items",
+                "#42:L4",
+                "other/spec#3:L1",
+            ],
+            gh,
+        )
+        self.assertEqual(code, vai.EXIT_OK)
+        self.assertIn("### owner/repo#42\n\n- L4: child criterion", out)
+        self.assertIn("### other/spec#3\n\n- L1: spec item", out)
+
+    def test_a_sub_issue_or_non_item_selection_is_refused(self):
+        for spec in ("#42:L5", "#42:L1", "#42:L0", "42:L3", "#42:"):
+            with self.subTest(spec):
+                gh = FakeGh({"issue view": {"body": self.body}})
+                code, out = run_main(
+                    ["brief", "--repo", "owner/repo", "--pr", "12", "--items", spec], gh
+                )
+                self.assertEqual(code, vai.EXIT_USAGE)
+                self.assertEqual(out, "")
 
 
 class ResolveLinksTests(unittest.TestCase):
@@ -420,6 +540,35 @@ class ResolveLinksTests(unittest.TestCase):
         )
         result = vai.resolve_links(gh, "owner/repo", 12)
         self.assertEqual(result["candidates"][0]["repo"], "other/spec")
+
+
+class LinksCommandTests(unittest.TestCase):
+    pr_payload = {
+        "number": 12,
+        "headRefName": "topic",
+        "body": "",
+        "closingIssuesReferences": [{"number": 7, "url": "https://github.com/owner/repo/issues/7"}],
+    }
+
+    def test_without_pr_the_current_branch_pr_is_used(self):
+        gh = FakeGh(
+            {
+                "repo view": {"nameWithOwner": "owner/repo"},
+                "pr view": self.pr_payload,
+                "api repos/owner/repo/issues/7": {"title": "T", "state": "open"},
+            }
+        )
+        code, out = run_main(["links"], gh)
+        self.assertEqual(code, vai.EXIT_OK)
+        self.assertEqual(json.loads(out)["pr"], 12)
+        pr_call = [call[0] for call in gh.calls if call[0][:2] == ["pr", "view"]][0]
+        self.assertEqual(pr_call[2], "--json")
+
+    def test_repo_without_pr_is_a_usage_error(self):
+        gh = FakeGh({})
+        code, _ = run_main(["links", "--repo", "owner/repo"], gh)
+        self.assertEqual(code, vai.EXIT_USAGE)
+        self.assertEqual(gh.calls, [])
 
 
 class CommentTaskListTests(unittest.TestCase):

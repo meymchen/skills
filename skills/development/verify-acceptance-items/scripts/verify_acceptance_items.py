@@ -4,15 +4,16 @@
 # ///
 """Structural helper for the verify-acceptance-items skill.
 
-Three subcommands, none of which decide which task-list items are acceptance
-items:
+Four subcommands, none of which decide which task-list items are acceptance
+criteria:
 
 * ``links``   resolve the issues a pull request refers to, with provenance.
 * ``extract`` report the task-list structure of an issue body.
+* ``brief``   render the judging subagent's prompt from chosen items.
 * ``apply``   tick specific lines of an issue body, byte-exactly.
 
-The model chooses the acceptance section and judges each item. This script only
-does the parts that must be deterministic and testable.
+The model chooses the acceptance criteria and the subagent judges them. This
+script does every part that must be deterministic and testable.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
+from string import Template
 from typing import Any
 
 EXIT_OK = 0
@@ -34,6 +37,7 @@ EXIT_USAGE = 64
 EXIT_INTERRUPT = 130
 
 TAB_WIDTH = 4
+BRIEF_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "judge-brief.md"
 
 TASK_ITEM = re.compile(
     r"^(?P<indent>[ \t]*)(?P<marker>[-*+])[ \t]+\[(?P<state>[ xX])\](?P<text>[ \t].*|)$"
@@ -54,6 +58,10 @@ SUB_ISSUE = re.compile(
 BARE_MENTION = re.compile(r"(?<![\w/#])#(?P<number>\d+)\b")
 QUALIFIED_MENTION = re.compile(r"\b(?P<repo>[\w.\-]+/[\w.\-]+)#(?P<number>\d+)\b")
 BRANCH_NUMBER = re.compile(r"(?<!\d)(?P<number>\d{1,6})(?!\d)")
+LINE_ID = re.compile(r"^L?(?P<line>[1-9]\d*)$")
+ITEM_SPEC = re.compile(
+    r"^(?:(?P<repo>[\w.\-]+/[\w.\-]+))?#(?P<issue>\d+):(?P<lines>L?\d+(?:,L?\d+)*)$"
+)
 
 TRUST = {"closing_reference": "high", "body_mention": "low", "branch_name": "low"}
 
@@ -82,24 +90,28 @@ Runner = Callable[[list[str], str | None], str]
 
 
 def run_gh(args: list[str], stdin: str | None = None) -> str:
-    """Run ``gh`` with an argument list and return stdout."""
+    """Run ``gh`` with an argument list and return stdout.
+
+    The pipes run in binary mode: text mode on Windows rewrites every ``\\n``
+    written to stdin as ``\\r\\n``, which would corrupt an issue body on write.
+    """
     try:
         completed = subprocess.run(
             ["gh", *args],
-            input=stdin,
+            input=None if stdin is None else stdin.encode("utf-8"),
             capture_output=True,
-            text=True,
-            encoding="utf-8",
             check=False,
         )
     except FileNotFoundError as exc:  # pragma: no cover - environment dependent
         raise SkillError(
             "GitHub CLI (gh) is not installed or not on PATH", EXIT_PRECONDITION
         ) from exc
+    stdout = completed.stdout.decode("utf-8")
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
+        stderr = completed.stderr.decode("utf-8", errors="replace")
+        detail = (stderr or stdout).strip()
         raise SkillError(f"gh {' '.join(args)} failed: {detail}", EXIT_FAILED)
-    return completed.stdout
+    return stdout
 
 
 def gh_json(runner: Runner, args: list[str]) -> Any:
@@ -187,13 +199,12 @@ def parse_body(body: str) -> dict[str, Any]:
 
     def open_section(section: Section) -> None:
         close_lists()
+        # A bold line is the weakest boundary: whatever section opens next ends it.
+        while stack and stack[-1].kind == "bold":
+            stack.pop()
         if section.kind == "heading":
             while stack and stack[-1].level >= section.level and stack[-1].kind != "details":
                 stack.pop()
-        elif section.kind == "bold":
-            while stack and stack[-1].kind == "bold":
-                stack.pop()
-            section.level = (stack[-1].level if stack else 0) + 1
         else:
             section.level = (stack[-1].level if stack else 0) + 1
         stack.append(section)
@@ -342,48 +353,91 @@ def body_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def tick_lines(body: str, requests: list[dict[str, Any]]) -> tuple[str, list[int], list[int]]:
-    """Flip ``[ ]`` to ``[x]`` on the requested lines and change nothing else."""
-    lines = body.splitlines(keepends=True)
+def body_items(body: str) -> dict[int, dict[str, Any]]:
+    """Every task-list item ``parse_body`` reports, keyed by line number."""
+    parsed = parse_body(body)
+    return {item["line"]: item for section in parsed["sections"] for item in section["items"]}
+
+
+def tickable_item(items: dict[int, dict[str, Any]], number: int) -> dict[str, Any]:
+    """Return the item on ``number``, refusing anything that must never be ticked."""
+    item = items.get(number)
+    if item is None:
+        raise SkillError(
+            f"L{number} is not a task-list item in the issue body "
+            "(prose, a table, fenced code, or outside the body)",
+            EXIT_USAGE,
+        )
+    if item["sub_issue"]:
+        raise SkillError(f"L{number} is a sub-issue entry, which is never ticked", EXIT_USAGE)
+    return item
+
+
+def tick_lines(body: str, targets: list[int]) -> tuple[str, list[int], list[int]]:
+    """Flip ``[ ]`` to ``[x]`` on the requested lines and change nothing else.
+
+    Lines are split on ``\n`` exactly as ``parse_body`` splits them, so the line
+    numbers ``extract`` reported address the same lines here.
+    """
+    items = body_items(body)
+    lines = body.split("\n")
     ticked: list[int] = []
     already: list[int] = []
 
-    for request in sorted(requests, key=lambda item: item["line"]):
-        number = request["line"]
-        expected = request["raw"]
-        if not isinstance(number, int) or number < 1 or number > len(lines):
-            raise SkillError(f"line {number} is outside the issue body", EXIT_PRECONDITION)
-
-        original = lines[number - 1]
-        stripped = original.rstrip("\r\n")
-        ending = original[len(stripped) :]
-
-        if stripped != expected:
-            match = TASK_ITEM.match(expected)
-            if match and match.group("state") == " ":
-                ticked_expected = (
-                    expected[: match.start("state")] + "x" + expected[match.start("state") + 1 :]
-                )
-                if stripped == ticked_expected:
-                    already.append(number)
-                    continue
-            raise SkillError(
-                f"line {number} no longer matches the extracted text; re-run extract",
-                EXIT_PRECONDITION,
-            )
-
-        match = TASK_ITEM.match(stripped)
-        if not match:
-            raise SkillError(f"line {number} is not a task-list item", EXIT_PRECONDITION)
-        if match.group("state") != " ":
+    for number in sorted(set(targets)):
+        item = tickable_item(items, number)
+        if item["checked"]:
             already.append(number)
             continue
-
+        original = lines[number - 1]
+        match = TASK_ITEM.match(original.removesuffix("\r"))
+        if not match:  # pragma: no cover - parse_body already matched this line
+            raise SkillError(f"L{number} is not a task-list item", EXIT_USAGE)
         start = match.start("state")
-        lines[number - 1] = stripped[:start] + "x" + stripped[start + 1 :] + ending
+        lines[number - 1] = original[:start] + "x" + original[start + 1 :]
         ticked.append(number)
 
-    return "".join(lines), ticked, already
+    return "\n".join(lines), ticked, already
+
+
+def line_id(value: str) -> int:
+    """Parse an item id as ``extract`` reports it (``L13``), or a bare line number."""
+    match = LINE_ID.match(value.strip())
+    if not match:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an item id such as L13")
+    return int(match.group("line"))
+
+
+# --------------------------------------------------------------------------
+# Judging brief
+# --------------------------------------------------------------------------
+
+
+def parse_item_spec(spec: str, default: str) -> tuple[str, int, list[int]]:
+    match = ITEM_SPEC.match(spec.strip())
+    if not match:
+        raise SkillError(
+            f"{spec!r} is not an item selection such as owner/name#42:L13,L15", EXIT_USAGE
+        )
+    try:
+        lines = [line_id(value) for value in match.group("lines").split(",")]
+    except argparse.ArgumentTypeError as exc:
+        raise SkillError(f"{spec!r}: {exc}", EXIT_USAGE) from exc
+    return match.group("repo") or default, int(match.group("issue")), lines
+
+
+def render_brief(repo: str, pr: int, groups: list[tuple[str, int, list[dict[str, Any]]]]) -> str:
+    """Fill the judging template with the chosen items and nothing else.
+
+    Checked state is left out on purpose: an existing tick is not evidence.
+    """
+    blocks: list[str] = []
+    for issue_repo, issue, items in groups:
+        base = min(item["depth"] for item in items)
+        rows = [f"{'  ' * (item['depth'] - base)}- {item['id']}: {item['text']}" for item in items]
+        blocks.append(f"### {issue_repo}#{issue}\n\n" + "\n".join(rows))
+    template = Template(BRIEF_TEMPLATE.read_text(encoding="utf-8"))
+    return template.substitute(repo=repo, pr=pr, criteria="\n\n".join(blocks))
 
 
 # --------------------------------------------------------------------------
@@ -396,19 +450,17 @@ def _repo_from_url(url: str, fallback: str) -> str:
     return match.group(1) if match else fallback
 
 
-def resolve_links(runner: Runner, repo: str, pr: int) -> dict[str, Any]:
+def resolve_links(runner: Runner, repo: str, pr: int | None) -> dict[str, Any]:
+    """Resolve the issues ``pr`` refers to; ``None`` means the current branch's PR."""
+    target = [str(pr), "--repo", repo] if pr is not None else []
     data = gh_json(
         runner,
-        [
-            "pr",
-            "view",
-            str(pr),
-            "--repo",
-            repo,
-            "--json",
-            "number,headRefName,body,closingIssuesReferences",
-        ],
+        ["pr", "view", *target, "--json", "number,headRefName,body,closingIssuesReferences"],
     )
+    if pr is None:
+        pr = data.get("number")
+        if not isinstance(pr, int):
+            raise SkillError("could not determine the current branch's PR", EXIT_PRECONDITION)
     body = data.get("body") or ""
     branch = data.get("headRefName") or ""
 
@@ -471,6 +523,8 @@ def resolve_links(runner: Runner, repo: str, pr: int) -> dict[str, Any]:
 
 
 def command_links(args: argparse.Namespace, runner: Runner) -> int:
+    if args.pr is None and args.repo:
+        raise SkillError("--repo needs --pr; the current branch only names its own PR", EXIT_USAGE)
     repo = args.repo or default_repo(runner)
     print(json.dumps(resolve_links(runner, repo, args.pr), indent=2, ensure_ascii=False))
     return EXIT_OK
@@ -494,35 +548,33 @@ def command_extract(args: argparse.Namespace, runner: Runner) -> int:
     return EXIT_OK
 
 
+def command_brief(args: argparse.Namespace, runner: Runner) -> int:
+    repo = args.repo or default_repo(runner)
+    groups: list[tuple[str, int, list[dict[str, Any]]]] = []
+    for spec in args.items:
+        issue_repo, issue, numbers = parse_item_spec(spec, repo)
+        items = body_items(fetch_issue_body(runner, issue_repo, issue))
+        chosen = [tickable_item(items, number) for number in sorted(set(numbers))]
+        groups.append((issue_repo, issue, chosen))
+    sys.stdout.write(render_brief(repo, args.pr, groups))
+    return EXIT_OK
+
+
 def command_apply(args: argparse.Namespace, runner: Runner) -> int:
-    raw = sys.stdin.read()
-    if not raw.strip():
-        raise SkillError("apply expects a JSON plan on stdin", EXIT_USAGE)
-    try:
-        plan = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SkillError(f"the plan on stdin is not valid JSON: {exc}", EXIT_USAGE) from exc
+    repo = args.repo or default_repo(runner)
+    issue = args.issue
 
-    repo = args.repo or plan.get("repo") or default_repo(runner)
-    issue = args.issue or plan.get("issue")
-    if not isinstance(issue, int):
-        raise SkillError("the plan must name an issue number", EXIT_USAGE)
-    expected_hash = plan.get("body_sha256")
-    if not expected_hash:
-        raise SkillError("the plan must carry the body_sha256 reported by extract", EXIT_USAGE)
-    requests = plan.get("tick") or []
-    if not isinstance(requests, list):
-        raise SkillError("the plan's tick field must be a list", EXIT_USAGE)
-
+    # A matching hash means the body is the one extract numbered, so line
+    # numbers alone address the right lines.
     body = fetch_issue_body(runner, repo, issue)
     actual_hash = body_hash(body)
-    if actual_hash != expected_hash:
+    if actual_hash != args.body_sha256:
         raise SkillError(
-            "the issue body changed since extract ran; re-run extract and rebuild the plan",
+            "the issue body changed since extract ran; re-run extract and choose again",
             EXIT_PRECONDITION,
         )
 
-    updated, ticked, already = tick_lines(body, requests)
+    updated, ticked, already = tick_lines(body, args.tick)
 
     if ticked and not args.dry_run:
         try:
@@ -557,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     links = subparsers.add_parser("links", help="resolve the issues a pull request refers to")
-    links.add_argument("--pr", type=int, required=True)
+    links.add_argument("--pr", type=int, help="defaults to the current branch's PR")
     links.add_argument("--repo")
     links.set_defaults(handler=command_links)
 
@@ -571,9 +623,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract.set_defaults(handler=command_extract)
 
+    brief = subparsers.add_parser("brief", help="render the judging subagent's prompt")
+    brief.add_argument("--pr", type=int, required=True)
+    brief.add_argument("--repo", help="the PR's repository; also the default for items")
+    brief.add_argument(
+        "--items",
+        nargs="+",
+        required=True,
+        metavar="[OWNER/NAME]#ISSUE:Ln,Ln",
+        help="chosen acceptance criteria, one selection per issue",
+    )
+    brief.set_defaults(handler=command_brief)
+
     apply_parser = subparsers.add_parser("apply", help="tick specific lines of an issue body")
-    apply_parser.add_argument("--issue", type=int)
+    apply_parser.add_argument("--issue", type=int, required=True)
     apply_parser.add_argument("--repo")
+    apply_parser.add_argument(
+        "--body-sha256", required=True, help="the body_sha256 that extract reported"
+    )
+    apply_parser.add_argument(
+        "--tick", nargs="+", type=line_id, required=True, metavar="Ln", help="item ids to tick"
+    )
     apply_parser.add_argument("--dry-run", action="store_true")
     apply_parser.set_defaults(handler=command_apply)
 
