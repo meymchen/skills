@@ -7,7 +7,7 @@ Reusable agent skills, grouped by domain under [`skills/`](skills/).
 - [`cleanup-merged-branch`](skills/routine/cleanup-merged-branch/README.md) —
   clean verified merged branches, reproducible caches, and stale local branches.
 - [`verify-acceptance-items`](skills/development/verify-acceptance-items/README.md) —
-  check a pull request against the acceptance items of its issue and tick the
+  check a pull request against the acceptance criteria of its issue and tick the
   proven ones.
 
 ## Install
