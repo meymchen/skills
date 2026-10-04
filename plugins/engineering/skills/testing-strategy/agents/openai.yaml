@@ -1,0 +1,6 @@
+interface:
+  display_name: "Testing Strategy"
+  default_prompt: "Use $engineering:testing-strategy to create a test plan for this project."
+
+policy:
+  allow_implicit_invocation: true

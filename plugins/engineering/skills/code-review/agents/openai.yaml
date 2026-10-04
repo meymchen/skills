@@ -1,0 +1,6 @@
+interface:
+  display_name: "Code Review"
+  default_prompt: "Use $engineering:code-review to review the code changes I identify for correctness, security, and maintainability."
+
+policy:
+  allow_implicit_invocation: true

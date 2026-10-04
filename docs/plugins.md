@@ -1,10 +1,11 @@
 # Plugin marketplaces
 
 This repository is a marketplace-ready source for Claude Code and Codex. The
-marketplace catalogs publish `git-workflows`, providing commit, pull-request,
-and gone-branch cleanup workflows. Remote GitHub installation has not yet been
-exercised end to end. The existing standalone skills remain available through
-the `skills` CLI.
+marketplace catalogs list `git-workflows`, providing commit, pull-request,
+and gone-branch cleanup workflows, and `engineering`, retaining ten upstream
+engineering skills with personal-use and dual-host adaptations. Remote GitHub
+installation has not yet been exercised end to end. The existing standalone
+skills remain available through the `skills` CLI.
 
 ## Layout
 
@@ -20,6 +21,11 @@ A generated plugin contains one Claude Code manifest, one Codex manifest, a
 minimal skill with `agents/openai.yaml`, and a development README. The native
 manifests are authoritative; the repository checks that their shared identity
 fields agree.
+
+Generated plugins use MIT. Adapted Apache-2.0 plugins must declare the same
+license in both manifests and include a non-empty `LICENSE` file. Preserve
+upstream attribution and modification notices, as in
+[`engineering/UPSTREAM.md`](../plugins/engineering/UPSTREAM.md).
 
 ## Requirements
 
@@ -102,6 +108,10 @@ Install `git-workflows` with:
 claude plugin install git-workflows@meymchen-skills
 codex plugin add git-workflows@meymchen-skills
 ```
+
+Use `engineering@meymchen-skills` to install the Engineering plugin once its
+catalog entry is available in the selected marketplace. During development,
+add the local repository path instead of the GitHub source.
 
 CI currently proves discovery and installation against a generated local
 marketplace. Remote GitHub installation remains a future end-to-end check.

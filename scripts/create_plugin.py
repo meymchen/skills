@@ -263,7 +263,7 @@ def _validate_shared_manifest_fields(
     claude_path: Path,
     codex_path: Path,
 ) -> None:
-    for key in ("name", "version", "description"):
+    for key in ("name", "version", "description", "license"):
         claude_value = _require_string(claude, key, str(claude_path))
         codex_value = _require_string(codex, key, str(codex_path))
         if claude_value != codex_value:
@@ -274,8 +274,12 @@ def _validate_shared_manifest_fields(
     validate_description(claude["description"])
     _validate_author(claude, str(claude_path))
     _validate_author(codex, str(codex_path))
-    if claude.get("license") != "MIT" or codex.get("license") != "MIT":
-        raise PluginError("both plugin manifests must declare the MIT license")
+    if claude["license"] not in {"MIT", "Apache-2.0"}:
+        raise PluginError("plugin license must be MIT or Apache-2.0")
+    if claude["license"] == "Apache-2.0":
+        license_path = claude_path.parent.parent / "LICENSE"
+        if not license_path.is_file() or not license_path.read_text(encoding="utf-8").strip():
+            raise PluginError("Apache-2.0 plugins must include a non-empty LICENSE file")
 
 
 def _validate_codex_manifest(codex: dict[str, Any], codex_path: Path) -> None:

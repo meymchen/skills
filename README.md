@@ -19,12 +19,17 @@ npx skills@latest add meymchen/skills
 ## Plugins
 
 This repository is also structured as a self-hosted plugin marketplace for
-Claude Code and Codex. Its first published plugin is `git-workflows`, which
-commits changes, publishes pull requests, and cleans gone Git branches.
+Claude Code and Codex. Available plugins:
+
+- [`git-workflows`](plugins/git-workflows/README.md) commits changes, publishes
+  pull requests, and cleans gone Git branches.
+- [`engineering`](plugins/engineering/README.md) adapts Anthropic's ten engineering
+  skills for personal and team projects, with shared Claude Code and Codex instructions.
 
 See [Plugin marketplaces](docs/plugins.md) to create, validate, and publish a
 plugin.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE), except for the adapted [Engineering plugin](plugins/engineering/README.md#license),
+which retains its upstream license.

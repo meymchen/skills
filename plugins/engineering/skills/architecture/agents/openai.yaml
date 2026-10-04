@@ -1,0 +1,6 @@
+interface:
+  display_name: "Architecture"
+  default_prompt: "Use $engineering:architecture to draft an ADR for the design decision in this project."
+
+policy:
+  allow_implicit_invocation: false

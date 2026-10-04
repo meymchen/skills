@@ -1,0 +1,22 @@
+{
+  "name": "engineering",
+  "version": "0.1.0",
+  "description": "Engineering workflows for personal and team projects, adapted from Anthropic's engineering plugin.",
+  "author": {
+    "name": "Yuming Chen",
+    "url": "https://github.com/meymchen"
+  },
+  "homepage": "https://github.com/meymchen/skills/tree/main/plugins/engineering",
+  "repository": "https://github.com/meymchen/skills",
+  "license": "Apache-2.0",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Engineering",
+    "shortDescription": "Design, review, debug, document, and operate software projects.",
+    "longDescription": "Engineering workflows for personal and team projects, adapted from Anthropic's engineering plugin.",
+    "developerName": "Yuming Chen",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me with an engineering task in this project."
+  }
+}
