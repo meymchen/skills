@@ -464,24 +464,38 @@ def verify_default_can_update(repository: RepositoryInfo) -> None:
 
 
 def update_default_branch(repository: RepositoryInfo, progress: Progress) -> None:
-    if local_branch_oid(repository.root, repository.default_branch) is None:
+    remote_default = f"refs/remotes/{repository.remote}/{repository.default_branch}"
+    local_oid = local_branch_oid(repository.root, repository.default_branch)
+    if local_oid is None:
         git(
             repository.root,
             "switch",
             "--track",
             "-c",
             repository.default_branch,
-            f"{repository.remote}/{repository.default_branch}",
+            remote_default,
         )
     elif current_branch(repository.root) != repository.default_branch:
+        # Fast-forward the ref before switching so the worktree moves once, straight to
+        # the updated tip, instead of rewinding to the stale default and pulling forward.
+        git(
+            repository.root,
+            "update-ref",
+            "-m",
+            f"cleanup-merged-branch: fast-forward to {repository.remote}/{repository.default_branch}",
+            f"refs/heads/{repository.default_branch}",
+            remote_default,
+            local_oid,
+        )
         git(repository.root, "switch", repository.default_branch)
-    git(
-        repository.root,
-        "pull",
-        "--ff-only",
-        repository.remote,
-        repository.default_branch,
-    )
+    else:
+        git(
+            repository.root,
+            "pull",
+            "--ff-only",
+            repository.remote,
+            repository.default_branch,
+        )
     progress.default_updated = True
 
 

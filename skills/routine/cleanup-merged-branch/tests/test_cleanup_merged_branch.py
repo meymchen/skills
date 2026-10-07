@@ -262,6 +262,24 @@ class CleanupMergedBranchCliTests(unittest.TestCase):
             self.assertTrue(all(call[0] in {"auth", "repo", "pr"} for call in calls))
             self.assertNotIn("edit", {argument for call in calls for argument in call})
 
+    def test_moves_the_worktree_straight_to_the_updated_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, source_sha, merge_sha = create_merged_repository(root)
+            stale_default = run_git(repository, "rev-parse", "main~1").stdout.strip()
+            run_git(repository, "branch", "-f", "main", stale_default)
+            entries_before = len(run_git(repository, "reflog", "HEAD").stdout.splitlines())
+
+            result, _ = invoke_cleanup(root, repository, github_state(source_sha, merge_sha))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(run_git(repository, "rev-parse", "main").stdout.strip(), merge_sha)
+            entries = run_git(repository, "reflog", "--format=%H %gs", "HEAD").stdout.splitlines()
+            self.assertEqual(
+                entries[: len(entries) - entries_before],
+                [f"{merge_sha} checkout: moving from feat/3-cleanup to main"],
+            )
+
     def test_dry_run_reports_the_plan_without_mutating_the_repository(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
