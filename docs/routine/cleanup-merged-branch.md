@@ -68,8 +68,8 @@ nested Git repositories, path escapes, `.venv`, `node_modules`, `.agent-runs`,
 `.scratch`, build outputs, dependency trees, and ordinary untracked files remain
 untouched. The run stops if the safe plan exceeds 10,000 files or 2 GiB.
 
-The execution order is cache deletion, default-branch switch, fast-forward-only
-pull, merge-commit verification, and local source-branch deletion. If interrupted,
+The execution order is cache deletion, default-branch fast-forward and switch,
+merge-commit verification, and local source-branch deletion. If interrupted,
 rerun the skill; completed steps are idempotent. The summary records each deleted
 branch tip and a `git branch <name> <sha>` recovery command.
 
