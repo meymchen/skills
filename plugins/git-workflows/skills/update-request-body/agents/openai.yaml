@@ -1,0 +1,7 @@
+interface:
+  display_name: "Update Request Body"
+  short_description: "Update the title and body of GitHub PRs or GitLab MRs"
+  default_prompt: "Use $update-request-body to update the title and body of the relevant pull request or merge request."
+
+policy:
+  allow_implicit_invocation: true

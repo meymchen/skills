@@ -8,8 +8,8 @@
     {
       "name": "git-workflows",
       "source": "./plugins/git-workflows",
-      "description": "Manage Git commits, pull requests, and local branch cleanup workflows.",
-      "version": "0.1.1",
+      "description": "Manage Git commits, GitHub pull requests or GitLab merge requests, and local branch cleanup workflows.",
+      "version": "0.2.0",
       "author": {
         "name": "Yuming Chen"
       }
