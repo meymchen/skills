@@ -1,11 +1,11 @@
 # Plugin marketplaces
 
 This repository is a marketplace-ready source for Claude Code and Codex. The
-marketplace catalogs list `git-workflows`, providing commit, pull-request,
-and gone-branch cleanup workflows, and `engineering`, retaining ten upstream
-engineering skills with personal-use and dual-host adaptations. Remote GitHub
-installation has not yet been exercised end to end. The existing standalone
-skills remain available through the `skills` CLI.
+marketplace catalogs list `git-workflows`, providing commit, pull or merge
+request, and gone-branch cleanup workflows, and `engineering`, retaining ten
+upstream engineering skills with personal-use and dual-host adaptations. Remote
+GitHub installation has not yet been exercised end to end. The existing
+standalone skills remain available through the `skills` CLI.
 
 ## Layout
 

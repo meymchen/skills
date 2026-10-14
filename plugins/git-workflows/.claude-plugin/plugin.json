@@ -1,7 +1,7 @@
 {
   "name": "git-workflows",
-  "version": "0.1.1",
-  "description": "Manage Git commits, pull requests, and local branch cleanup workflows.",
+  "version": "0.2.0",
+  "description": "Manage Git commits, GitHub pull requests or GitLab merge requests, and local branch cleanup workflows.",
   "author": {
     "name": "Yuming Chen",
     "url": "https://github.com/meymchen"

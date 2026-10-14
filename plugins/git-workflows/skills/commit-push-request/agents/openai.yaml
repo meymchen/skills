@@ -1,0 +1,7 @@
+interface:
+  display_name: "Commit, Push, and Open Request"
+  short_description: "Commit changes, push the branch, and open a GitHub PR or GitLab MR"
+  default_prompt: "Use $commit-push-request to commit my changes, push the branch, and open a GitHub pull request or GitLab merge request."
+
+policy:
+  allow_implicit_invocation: true
