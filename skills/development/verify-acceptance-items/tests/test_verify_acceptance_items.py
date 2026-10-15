@@ -464,6 +464,14 @@ class RunCommandTests(unittest.TestCase):
         with mock.patch.object(vai.subprocess, "run", return_value=completed):
             self.assertEqual(vai.run_command(["gh", "issue", "view"]), '{"body": "验收标准"}')
 
+    def test_a_call_without_input_closes_stdin(self):
+        # A CLI that prompts would otherwise wait on the caller's terminal.
+        completed = vai.subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+        with mock.patch.object(vai.subprocess, "run", return_value=completed) as run:
+            vai.run_command(["glab", "auth", "status", "--hostname", "gitlab.com"])
+        self.assertIs(run.call_args.kwargs["stdin"], vai.subprocess.DEVNULL)
+        self.assertNotIn("input", run.call_args.kwargs)
+
     def test_concatenated_pages_are_joined(self):
         joined = [{"a": 1}, {"a": 2}]
         self.assertEqual(vai.load_json('[{"a": 1}]\n[{"a": 2}]\n', ["glab"]), joined)

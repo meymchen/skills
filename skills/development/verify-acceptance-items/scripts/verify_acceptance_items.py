@@ -117,14 +117,14 @@ def run_command(args: list[str], stdin: str | None = None) -> str:
 
     The pipes run in binary mode: text mode on Windows rewrites every ``\\n``
     written to stdin as ``\\r\\n``, which would corrupt an issue body on write.
+    Without input, stdin is closed so a CLI that prompts fails instead of
+    waiting for an answer nobody can give.
     """
+    feed: dict[str, Any] = (
+        {"stdin": subprocess.DEVNULL} if stdin is None else {"input": stdin.encode("utf-8")}
+    )
     try:
-        completed = subprocess.run(
-            args,
-            input=None if stdin is None else stdin.encode("utf-8"),
-            capture_output=True,
-            check=False,
-        )
+        completed = subprocess.run(args, capture_output=True, check=False, **feed)
     except FileNotFoundError as exc:  # pragma: no cover - environment dependent
         raise SkillError(f"{args[0]} is not installed or not on PATH", EXIT_PRECONDITION) from exc
     stdout = completed.stdout.decode("utf-8")
