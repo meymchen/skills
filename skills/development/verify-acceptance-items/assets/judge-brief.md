@@ -1,26 +1,23 @@
-# Judge acceptance criteria against pull request #$pr
+# Judge acceptance criteria against $label
 
-Decide, for each acceptance criterion below, whether pull request #$pr in
-`$repo` proves it.
+Decide, for each acceptance criterion below, whether $request proves it.
 
 ## Evidence
 
-Read the PR only through `gh`:
+Read the $noun only through these commands:
 
-- `gh pr diff $pr --repo $repo`
-- `gh pr checks $pr --repo $repo`
-- `gh pr view $pr --repo $repo --json title,body,commits`
+$evidence
 
-The evidence is what the PR shows. Checking out the branch and running tests
+The evidence is what the $noun shows. Checking out the branch and running tests
 are outside this task.
 
 ## Verdicts
 
-- `satisfied`: the PR proves the criterion. Cite a `path:line` from the diff or
-  a check name. No citation, no `satisfied`.
-- `unsatisfied`: write the evidence as "no evidence in this PR". The work may
-  live in another PR, so absence here proves nothing about the issue.
-- `undecidable`: the PR cannot settle it, such as manual verification, review
+- `satisfied`: the $noun proves the criterion. Cite a `path:line` from the diff
+  or a $check. No citation, no `satisfied`.
+- `unsatisfied`: write the evidence as "no evidence in this $noun". The work may
+  live in another $noun, so absence here proves nothing about the issue.
+- `undecidable`: the $noun cannot settle it, such as manual verification, review
   by another person, or behaviour on a device. Prefer it to a guess.
 
 Judge each nested criterion on its own. A parent is `satisfied` only when every
@@ -31,7 +28,7 @@ child is.
 One line per criterion, in the order given, and nothing else:
 
 ```text
-<owner/name>#<issue> <id> | <verdict> | <evidence>
+<project>#<issue> <id> | <verdict> | <evidence>
 ```
 
 ## Criteria
