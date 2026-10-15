@@ -649,6 +649,7 @@ class PlatformDetectionTests(unittest.TestCase):
                 code, _ = self.extract(runner, "--host", host, "--repo", "a/b")
                 self.assertEqual(code, vai.EXIT_PRECONDITION)
                 self.assertIn(f"{cli} auth login --hostname {host}", Captured.stderr)
+                self.assertIn("not logged in", Captured.stderr)  # the CLI's own message
                 self.assertEqual(runner.platform_calls(), [])
 
     def test_no_github_literal_outside_platform_detection(self):

@@ -671,12 +671,15 @@ class Forge:
         self.host = host
 
     def check_auth(self) -> None:
-        if not cli_authenticated(self.runner, self.cli, self.host):
+        try:
+            self.runner([self.cli, "auth", "status", "--hostname", self.host], None)
+        except SkillError as exc:
+            # The CLI's own words tell a signed-out account from a network failure.
             raise SkillError(
                 f"{self.cli} is not installed or not authenticated for {self.host}; "
-                f"run `{self.cli} auth login --hostname {self.host}`",
+                f"run `{self.cli} auth login --hostname {self.host}`. {exc}",
                 EXIT_PRECONDITION,
-            )
+            ) from exc
 
     def label(self, number: int) -> str:
         return f"{self.request_term} {self.request_sigil}{number}"
