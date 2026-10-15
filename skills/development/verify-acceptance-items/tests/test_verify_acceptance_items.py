@@ -5,7 +5,7 @@ import io
 import json
 import sys
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -30,11 +30,11 @@ class FakeRunner:
 
     def __init__(
         self,
-        responses: dict[str, object] | None = None,
+        responses: Mapping[str, object] | None = None,
         failures: dict[str, str] | None = None,
         authenticated: tuple[str, ...] = ("gh", "glab"),
     ) -> None:
-        self.responses = responses or {}
+        self.responses = dict(responses or {})
         self.failures = failures or {}
         self.authenticated = authenticated
         self.calls: list[tuple[list[str], str | None]] = []
@@ -114,6 +114,12 @@ def _raise(message: str):
     return fail
 
 
+class Captured:
+    """Standard error of the latest ``run_main`` call."""
+
+    stderr = ""
+
+
 def run_main(argv, runner):
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
@@ -121,7 +127,7 @@ def run_main(argv, runner):
             code = vai.main(list(argv), runner=runner)
         except SystemExit as exc:  # argparse usage errors
             code = exc.code
-    run_main.stderr = err.getvalue()
+    Captured.stderr = err.getvalue()
     return code, out.getvalue()
 
 
@@ -574,8 +580,8 @@ class PlatformDetectionTests(unittest.TestCase):
                 code, out = self.extract(runner)
                 self.assertEqual(code, vai.EXIT_PRECONDITION)
                 self.assertEqual(out, "")
-                self.assertIn(word, run_main.stderr)
-                self.assertIn("--platform", run_main.stderr)
+                self.assertIn(word, Captured.stderr)
+                self.assertIn("--platform", Captured.stderr)
                 self.assertEqual(runner.platform_calls(), [])
 
     def test_platform_flag_overrides_detection(self):
@@ -634,7 +640,7 @@ class PlatformDetectionTests(unittest.TestCase):
                 runner = FakeRunner({}, authenticated=())
                 code, _ = self.extract(runner, "--host", host, "--repo", "a/b")
                 self.assertEqual(code, vai.EXIT_PRECONDITION)
-                self.assertIn(f"{cli} auth login --hostname {host}", run_main.stderr)
+                self.assertIn(f"{cli} auth login --hostname {host}", Captured.stderr)
                 self.assertEqual(runner.platform_calls(), [])
 
     def test_no_github_literal_outside_platform_detection(self):
@@ -697,6 +703,7 @@ class ApplyCommandTests(unittest.TestCase):
         self.assertEqual(put_args[-2:], ["--input", "-"])
         self.assertIn("Content-Type: application/json", put_args)
         self.assertFalse(any("[x]" in arg for arg in put_args))
+        assert put_stdin is not None
         self.assertEqual(json.loads(put_stdin)["description"], store.writes[0])
         self.assertTrue(all(args[:2] == ["glab", "api"] for args in runner.platform_calls()))
 
@@ -710,8 +717,8 @@ class ApplyCommandTests(unittest.TestCase):
                 code, out = run_main(self.argv(platform=platform), factory(store))
                 self.assertEqual(code, vai.EXIT_FAILED)
                 self.assertEqual(out, "")
-                self.assertIn("-- [ ] two", run_main.stderr)
-                self.assertIn("+- [ ] 2", run_main.stderr)
+                self.assertIn("-- [ ] two", Captured.stderr)
+                self.assertIn("+- [ ] 2", Captured.stderr)
 
     def test_line_ending_differences_pass_the_read_back(self):
         store = IssueStore(self.body, mangle=lambda text: text.replace("\n", "\r\n"))
@@ -752,7 +759,7 @@ class ApplyCommandTests(unittest.TestCase):
                 runner = factory(store, {pattern: message})
                 code, _ = run_main(self.argv(platform=platform), runner)
                 self.assertEqual(code, vai.EXIT_PRECONDITION)
-                self.assertIn("no write access", run_main.stderr)
+                self.assertIn("no write access", Captured.stderr)
 
     def test_other_write_failures_stay_failures(self):
         store = IssueStore(self.body)
@@ -869,7 +876,7 @@ class GitHubLinksTests(unittest.TestCase):
         runner = FakeRunner(responses, failures)
         argv = ["links", *GITHUB, "--repo", "owner/repo", "--request", "12"]
         code, out = run_main(argv, runner)
-        self.assertEqual(code, vai.EXIT_OK, run_main.stderr)
+        self.assertEqual(code, vai.EXIT_OK, Captured.stderr)
         return json.loads(out), runner
 
     def test_closing_reference_is_high_trust(self):
@@ -969,7 +976,7 @@ class GitHubLinksTests(unittest.TestCase):
             }
         )
         code, out = run_main(["links"], runner)
-        self.assertEqual(code, vai.EXIT_OK, run_main.stderr)
+        self.assertEqual(code, vai.EXIT_OK, Captured.stderr)
         payload = json.loads(out)
         self.assertEqual((payload["request"], payload["repo"]), (12, "owner/repo"))
         pr_call = [args for args in runner.commands("gh") if args[1:3] == ["pr", "view"]][0]
@@ -1003,7 +1010,7 @@ class GitLabLinksTests(unittest.TestCase):
     def links(self, runner):
         argv = ["links", *GITLAB, "--repo", "group/sub/project", "--request", "42"]
         code, out = run_main(argv, runner)
-        self.assertEqual(code, vai.EXIT_OK, run_main.stderr)
+        self.assertEqual(code, vai.EXIT_OK, Captured.stderr)
         return json.loads(out)
 
     def test_closing_and_related_issues_come_from_the_api(self):
@@ -1055,9 +1062,13 @@ class GitLabLinksTests(unittest.TestCase):
         )
         result = self.links(runner)
         self.assertEqual(result["candidates"], [])
-        reasons = [r["reason"] for r in result["rejected"]]
-        self.assertTrue(any("gitlab.example.com" in reason for reason in reasons))
-        self.assertTrue(any("not an issue on gitlab.com" in reason for reason in reasons))
+        self.assertEqual(
+            [(r["host"], r["reason"]) for r in result["rejected"]],
+            [
+                ("gitlab.com", "not an issue on gitlab.com: external"),
+                ("gitlab.example.com", "issue is on gitlab.example.com, not gitlab.com"),
+            ],
+        )
 
     def test_without_request_the_open_mr_for_the_branch_is_used(self):
         runner = self.runner(
@@ -1071,7 +1082,7 @@ class GitLabLinksTests(unittest.TestCase):
             }
         )
         code, out = run_main(["links"], runner)
-        self.assertEqual(code, vai.EXIT_OK, run_main.stderr)
+        self.assertEqual(code, vai.EXIT_OK, Captured.stderr)
         self.assertEqual(json.loads(out)["request"], 42)
         lookup = [args for args in runner.commands("glab") if "source_branch=topic" in args]
         self.assertEqual(len(lookup), 1)
@@ -1087,7 +1098,7 @@ class GitLabLinksTests(unittest.TestCase):
                 )
                 code, _ = run_main(["links"], runner)
                 self.assertEqual(code, vai.EXIT_PRECONDITION)
-                self.assertIn("--request", run_main.stderr)
+                self.assertIn("--request", Captured.stderr)
 
 
 class CommentTaskListTests(unittest.TestCase):
@@ -1153,7 +1164,7 @@ class CommentTaskListTests(unittest.TestCase):
         )
         argv = ["extract", *GITLAB, "--issue", "7", "--repo", "group/sub/project"]
         code, out = run_main(argv, runner)
-        self.assertEqual(code, vai.EXIT_OK, run_main.stderr)
+        self.assertEqual(code, vai.EXIT_OK, Captured.stderr)
         skipped = json.loads(out)["skipped"]
         self.assertEqual([e["text"] for e in skipped], ["first page", "second page"])
         self.assertEqual(
