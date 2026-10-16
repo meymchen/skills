@@ -1,6 +1,6 @@
 ---
 name: verify-acceptance-items
-description: Verify a GitHub pull request or GitLab merge request (MR) against the acceptance criteria (验收标准, task-list checkboxes) of the issues it links to, then tick the criteria it proves once the user confirms. Use when asked whether a PR or MR is done or meets its issue, when asked to check off an issue's checkboxes, or right after opening or updating a PR or MR that closes an issue.
+description: Verify a GitHub pull request or GitLab merge request (MR) against the acceptance criteria (验收标准/条件, task-list checkboxes) of the issues it links to, then tick the criteria it proves once the user confirms. Use when asked whether a PR or MR is done or meets its issue, when asked to check off an issue's checkboxes, or right after opening or updating a PR or MR that closes an issue.
 ---
 
 # Verify Acceptance Items
@@ -12,7 +12,7 @@ description: Verify a GitHub pull request or GitLab merge request (MR) against t
   `request_label`.
 - **Acceptance criterion**: a task-list item in an issue body that states
   something the work must satisfy. Its section heading varies: `Acceptance
-  criteria`, `验收标准`, `Definition of done`, a bold line, a `<details>` block.
+  criteria`, `验收标准`, `验收条件`, `Definition of done`, a bold line, a `<details>` block.
 - **Item id**: the `L<line>` id `extract` gives every task-list item. Ids carry
   each criterion from `extract` through `brief` and the verdicts to `apply`.
 - **Verdict**: `satisfied`, `unsatisfied`, or `undecidable`.
